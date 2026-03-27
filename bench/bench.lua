@@ -1,0 +1,162 @@
+local use_dkjson = os.getenv("USE_DKJSON") == "1"
+for _, v in ipairs(arg or {}) do
+  if v == "--dkjson" then
+    use_dkjson = true
+    break
+  end
+end
+
+local json_lib
+local lib_name
+
+if use_dkjson then
+  json_lib = require("bench.dkjson")
+  lib_name = "dkjson"
+else
+  json_lib = require("wjson")
+  lib_name = "wjson"
+end
+
+local wjson = json_lib -- Keep variable name for compatibility or refactor; let's refactor to json_lib
+
+-- Random number generator seed
+math.randomseed(42)
+
+local function random_string(min_len, max_len)
+  local len = math.random(min_len, max_len)
+  local chars = {}
+  for i = 1, len do
+    -- Pick printable ASCII chars mostly
+    -- occasionally throw in an escape requirement to test slow paths
+    if math.random() < 0.05 then
+      chars[i] = string.char(math.random(1, 31)) -- Control char to escape
+    elseif math.random() < 0.05 then
+      chars[i] = '\\'
+    elseif math.random() < 0.05 then
+      chars[i] = '"'
+    else
+      chars[i] = string.char(math.random(32, 126))
+    end
+  end
+  return table.concat(chars)
+end
+
+local function generate_shallow_wide(min_len, max_len)
+  local tbl = {}
+  -- 200 fields per shallow object
+  for i = 1, 200 do
+    local key = "field_" .. i .. "_" .. random_string(5, 15)
+    local val_type = math.random(1, 4)
+    if val_type == 1 then
+      tbl[key] = random_string(min_len, max_len)
+    elseif val_type == 2 then
+      tbl[key] = math.random() * 1000000
+    elseif val_type == 3 then
+      tbl[key] = math.random() > 0.5
+    else
+      tbl[key] = json_lib.null
+    end
+  end
+  return tbl
+end
+
+local deep_table_count = 0
+local function generate_deep_nested(depth, min_len, max_len)
+  if depth == 0 then
+    if math.random() > 0.5 then
+      return random_string(min_len, max_len)
+    else
+      return math.random() * 1000
+    end
+  end
+
+  local is_array = math.random() > 0.5
+  -- dkjson doesn't use array_mt, so we only apply it for wjson
+  local tbl = (is_array and json_lib.array_mt) and setmetatable({}, json_lib.array_mt) or {}
+  deep_table_count = deep_table_count + 1
+
+  -- Each level has 2-4 children
+  local children = math.random(2, 4)
+  for i = 1, children do
+    local val = generate_deep_nested(depth - 1, min_len, max_len)
+    if is_array then
+      table.insert(tbl, val)
+    else
+      local key = "nested_key_" .. random_string(5, 10)
+      tbl[key] = val
+    end
+  end
+  return tbl
+end
+
+local function measure(tbl, iterations)
+  collectgarbage("collect")
+  local ok, str = pcall(json_lib.encode, tbl)
+  if not ok then return 0, 0 end
+
+  -- Warmup
+  for i = 1, 10 do
+    json_lib.encode(tbl)
+    json_lib.decode(str)
+  end
+
+  local start = os.clock()
+  for i = 1, iterations do
+    json_lib.encode(tbl)
+  end
+  local encode_time = os.clock() - start
+
+  start = os.clock()
+  for i = 1, iterations do
+    json_lib.decode(str)
+  end
+  local decode_time = os.clock() - start
+
+  return encode_time, decode_time
+end
+
+local function run_benchmark(label, generator, sets, iters_per_set)
+  local total_e, total_d = 0, 0
+  for _ = 1, sets do
+    local tbl = generator()
+    local e, d = measure(tbl, iters_per_set)
+    total_e = total_e + e
+    total_d = total_d + d
+  end
+  local avg_e = (total_e / (sets * iters_per_set)) * 1000
+  local avg_d = (total_d / (sets * iters_per_set)) * 1000
+  print(string.format("%-45s | Encode: %6.2f ms | Decode: %6.2f ms", label, avg_e, avg_d))
+end
+
+print("=========================================================================")
+print("JSON Benchmark Suite")
+print("Library: " .. lib_name)
+if jit then
+  print("VM: LuaJIT " .. jit.version)
+else
+  print("VM: Lua " .. _VERSION)
+end
+print("Running benchmarks (20 data sets per type)...")
+print("=========================================================================")
+
+local sets = 10
+local iters_per_set = 10
+local iters_per_big_set = 3
+
+run_benchmark("Shallow Wide (Short Strings, 200 fields)", function()
+  return generate_shallow_wide(32, 256)
+end, sets, iters_per_set)
+
+run_benchmark("Shallow Wide (Long Strings, 200 fields)", function()
+  return generate_shallow_wide(1024, 16384)
+end, sets, iters_per_big_set)
+
+run_benchmark("Deeply Nested (Short Strings, ~120 tables)", function()
+  return generate_deep_nested(5, 32, 256)
+end, sets, iters_per_set)
+
+run_benchmark("Deeply Nested (Long Strings, ~160 tables)", function()
+  return generate_deep_nested(5, 1024, 16384)
+end, sets, iters_per_big_set)
+
+print("=========================================================================")
