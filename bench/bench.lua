@@ -159,4 +159,79 @@ run_benchmark("Deeply Nested (Long Strings, ~160 tables)", function()
   return generate_deep_nested(5, 1024, 16384)
 end, sets, iters_per_big_set)
 
+local function read_file(path)
+  local is_gz = path:match("%.gz$")
+  local f
+  if is_gz then
+    f = io.popen("gzip -dc " .. path, "r")
+  else
+    f = io.open(path, "rb")
+  end
+  if not f then return nil end
+  local content = f:read("*a")
+  f:close()
+  return content
+end
+
+local function measure_dataset(raw_string, iterations)
+  collectgarbage("collect")
+  local ok, tbl = pcall(json_lib.decode, raw_string)
+  if not ok then return 0, 0 end
+
+  -- Warmup
+  for i = 1, math.min(3, iterations) do
+    json_lib.decode(raw_string)
+    pcall(json_lib.encode, tbl)
+  end
+
+  local start = os.clock()
+  for i = 1, iterations do
+    json_lib.encode(tbl)
+  end
+  local encode_time = os.clock() - start
+
+  start = os.clock()
+  for i = 1, iterations do
+    json_lib.decode(raw_string)
+  end
+  local decode_time = os.clock() - start
+
+  return encode_time, decode_time
+end
+
+local datasets = {}
+local dataset_files = {
+  "spec/datasets/github-gists.json.gz",
+  "spec/datasets/historical-events-tr.json.gz",
+  "spec/datasets/province-of-barcelona-universities.json.gz",
+  "spec/datasets/wikipedia-movie-data.json.gz"
+}
+
+for _, file in ipairs(dataset_files) do
+  local content = read_file(file)
+  if content then
+    table.insert(datasets, { name = file:match("([^/]+)%.json%.gz$"), raw = content, length = #content })
+  end
+end
+
+if #datasets > 0 then
+  print("=========================================================================")
+  print("Real-world Datasets")
+  print("=========================================================================")
+  for _, ds in ipairs(datasets) do
+    local iters = 10
+    if ds.length > 5000000 then    -- Size > ~5MB
+      iters = 2
+    elseif ds.length > 500000 then -- Size > ~500KB
+      iters = 5
+    end
+
+    local e, d = measure_dataset(ds.raw, iters)
+    local avg_e = (e / iters) * 1000
+    local avg_d = (d / iters) * 1000
+
+    print(string.format("%-45s | Encode: %6.2f ms | Decode: %6.2f ms", "Dataset: " .. ds.name, avg_e, avg_d))
+  end
+end
+
 print("=========================================================================")
