@@ -143,6 +143,8 @@ else
   end
 end
 
+local utf8_len = (type(_G.utf8) == "table" and type(_G.utf8.len) == "function") and _G.utf8.len or nil
+
 local skip_whitespace
 if _G.jit then
   skip_whitespace = function(str, pos)
@@ -506,10 +508,12 @@ if _G.jit then
     return "Unterminated string", nil
   end
 else
+  local STRING_PATTERN = utf8_len and '["\\\1-\31%z]' or '["\\\1-\31%z\128-\255]'
+
   parse_string = function(str, pos, len)
     -- PUC Lua: use pattern matching to find the first quote or special character
     local start = pos + 1
-    local special_pos = str_find(str, '["\\\1-\31%z\128-\255]', start)
+    local special_pos = str_find(str, STRING_PATTERN, start)
     if not special_pos then
       return "Unterminated string at position " .. pos, nil
     end
@@ -528,7 +532,7 @@ else
 
     -- PUC Lua slow path loop with chunked search
     while i <= len do
-      local special_pos_chunk = str_find(str, '["\\\1-\31%z\128-\255]', i)
+      local special_pos_chunk = str_find(str, STRING_PATTERN, i)
       if not special_pos_chunk then return "Unterminated string", nil end
       i = special_pos_chunk
 
@@ -909,6 +913,13 @@ end
 ---@return any?, string?
 local function decode(str, max_size)
   if not str or str == "" then return nil, "Empty JSON" end
+
+  if utf8_len then
+    local count, pos = utf8_len(str)
+    if not count then
+      return nil, "Invalid UTF-8 sequence at position " .. (pos or "?")
+    end
+  end
 
   -- Size Check
   local len = #str
