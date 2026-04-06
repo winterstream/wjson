@@ -1,0 +1,84 @@
+=========================================================================
+Running with Nix environment: luajit
+>>> Running wjson benchmarks...
+=========================================================================
+JSON Benchmark Suite
+Library: wjson
+VM: LuaJIT LuaJIT 2.1.1741730670
+Running benchmarks (20 data sets per type)...
+=========================================================================
+Shallow Wide (Short Strings, 200 fields)      | Encode:   0.18 ms | Decode:   0.11 ms
+Shallow Wide (Long Strings, 200 fields)       | Encode:   5.26 ms | Decode:   5.63 ms
+Deeply Nested (Short Strings, ~120 tables)    | Encode:   0.26 ms | Decode:   0.21 ms
+Deeply Nested (Long Strings, ~160 tables)     | Encode:  14.48 ms | Decode:  15.31 ms
+=========================================================================
+Real-world Datasets
+=========================================================================
+Dataset: github-gists                         | Encode:   0.59 ms | Decode:   0.13 ms
+Dataset: historical-events-tr                 | Encode:   0.00 ms | Decode:   3.32 ms
+Dataset: province-of-barcelona-universities   | Encode:   3.25 ms | Decode:   1.00 ms
+Dataset: wikipedia-movie-data                 | Encode: 234.82 ms | Decode:  70.24 ms
+=========================================================================
+=========================================================================
+Running with Nix environment: lua52
+>>> Running wjson benchmarks...
+=========================================================================
+JSON Benchmark Suite
+Library: wjson
+VM: Lua Lua 5.2
+Running benchmarks (20 data sets per type)...
+=========================================================================
+Shallow Wide (Short Strings, 200 fields)      | Encode:   0.24 ms | Decode:   0.77 ms
+Shallow Wide (Long Strings, 200 fields)       | Encode:   6.42 ms | Decode:  23.26 ms
+Deeply Nested (Short Strings, ~120 tables)    | Encode:   0.48 ms | Decode:   1.63 ms
+Deeply Nested (Long Strings, ~160 tables)     | Encode:  16.62 ms | Decode:  60.65 ms
+=========================================================================
+Real-world Datasets
+=========================================================================
+Dataset: github-gists                         | Encode:   1.11 ms | Decode:   1.95 ms
+Dataset: historical-events-tr                 | Encode:   0.01 ms | Decode:  31.68 ms
+Dataset: province-of-barcelona-universities   | Encode:   6.59 ms | Decode:  15.18 ms
+Dataset: wikipedia-movie-data                 | Encode: 377.85 ms | Decode: 624.08 ms
+=========================================================================
+=========================================================================
+Running with Nix environment: lua53
+>>> Running wjson benchmarks...
+=========================================================================
+JSON Benchmark Suite
+Library: wjson
+VM: Lua Lua 5.3
+Running benchmarks (20 data sets per type)...
+=========================================================================
+Shallow Wide (Short Strings, 200 fields)      | Encode:   0.23 ms | Decode:   0.71 ms
+Shallow Wide (Long Strings, 200 fields)       | Encode:   6.10 ms | Decode:  21.68 ms
+Deeply Nested (Short Strings, ~120 tables)    | Encode:   0.36 ms | Decode:   1.13 ms
+Deeply Nested (Long Strings, ~160 tables)     | Encode:  16.19 ms | Decode:  58.21 ms
+=========================================================================
+Real-world Datasets
+=========================================================================
+Dataset: github-gists                         | Encode:   1.00 ms | Decode:   1.74 ms
+Dataset: historical-events-tr                 | Encode:   0.01 ms | Decode:  30.36 ms
+Dataset: province-of-barcelona-universities   | Encode:   6.36 ms | Decode:  11.72 ms
+Dataset: wikipedia-movie-data                 | Encode: 358.87 ms | Decode: 587.16 ms
+=========================================================================
+=========================================================================
+Running with Nix environment: lua54
+>>> Running wjson benchmarks...
+=========================================================================
+JSON Benchmark Suite
+Library: wjson
+VM: Lua Lua 5.4
+Running benchmarks (20 data sets per type)...
+=========================================================================
+Shallow Wide (Short Strings, 200 fields)      | Encode:   0.20 ms | Decode:   0.62 ms
+Shallow Wide (Long Strings, 200 fields)       | Encode:   5.28 ms | Decode:  17.86 ms
+Deeply Nested (Short Strings, ~120 tables)    | Encode:   0.44 ms | Decode:   1.45 ms
+Deeply Nested (Long Strings, ~160 tables)     | Encode:  10.98 ms | Decode:  37.23 ms
+=========================================================================
+Real-world Datasets
+=========================================================================
+Dataset: github-gists                         | Encode:   0.86 ms | Decode:   1.48 ms
+Dataset: historical-events-tr                 | Encode:   0.00 ms | Decode:  26.81 ms
+Dataset: province-of-barcelona-universities   | Encode:   5.02 ms | Decode:  10.22 ms
+Dataset: wikipedia-movie-data                 | Encode: 309.90 ms | Decode: 525.58 ms
+=========================================================================
