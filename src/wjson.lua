@@ -763,9 +763,11 @@ end
 local function parse_number(str, pos, len)
   local start_pos = pos
   local b = str_byte(str, pos)
+  local negative = false
 
   -- Handle optional minus sign
   if b == 45 then -- '-'
+    negative = true
     pos = pos + 1
     b = str_byte(str, pos)
   end
@@ -774,58 +776,68 @@ local function parse_number(str, pos, len)
     return "Invalid number at position " .. start_pos, nil
   end
 
-  -- Check for leading zero
-  local first_digit = b
-  pos = pos + 1
+  -- Fast path: compute small integers directly from byte values
+  -- Avoids str_sub + tonumber allocation for the common case
+  if b == 48 then -- '0'
+    -- Check for leading zero followed by digit (invalid: 01, 023)
+    local after_zero = str_byte(str, pos + 1)
+    if after_zero and after_zero >= 48 and after_zero <= 57 then
+      return "Invalid number: leading zero at position " .. start_pos, nil
+    end
+    pos = pos + 1
+    -- Check if followed by '.', 'e', 'E' (slow path)
+    local next_b = str_byte(str, pos)
+    if next_b == 46 or next_b == 101 or next_b == 69 then -- '.', 'e', 'E'
+      -- Fall through to slow path
+    else
+      return negative and -0 or 0, pos
+    end
+  else
+    -- Non-zero first digit: try to accumulate integer directly
+    local num = b - 48
+    pos = pos + 1
+    while pos <= len do
+      b = str_byte(str, pos)
+      if b and b >= 48 and b <= 57 then -- 0-9
+        num = num * 10 + (b - 48)
+        pos = pos + 1
+      elseif b == 46 or b == 101 or b == 69 then -- '.', 'e', 'E'
+        break
+      else
+        if negative then num = -num end
+        return num, pos
+      end
+    end
+  end
 
-  -- Fast path: scan for simple integer (digits only)
-  local is_simple = true
+  -- Slow path: handle decimals and exponents via tonumber(str_sub(...))
+  -- Re-scan from start_pos since we need the full string for tonumber
+  pos = start_pos + (negative and 1 or 0)
+  b = str_byte(str, pos)
+  -- Skip digits before decimal/exponent
   while pos <= len do
     b = str_byte(str, pos)
-    if b and b >= 48 and b <= 57 then          -- 0-9
+    if b and b >= 48 and b <= 57 then
       pos = pos + 1
-    elseif b == 46 or b == 101 or b == 69 then -- '.', 'e', 'E'
-      is_simple = false
+    elseif b == 46 or b == 101 or b == 69 then
       break
     else
       break
     end
   end
 
-  -- Check for leading zero followed by digit (invalid: 01, 023, -01, etc)
-  -- Only check if first_digit was '0' AND there were more digits scanned
-  if first_digit == 48 then -- '0'
-    local zero_pos = str_byte(str, start_pos) == 45 and start_pos + 1 or start_pos
-    local after_zero = str_byte(str, zero_pos + 1)
-    -- Invalid if there's a digit immediately after the zero (but dot/e/E are OK)
-    if after_zero and after_zero >= 48 and after_zero <= 57 then -- 0-9
-      return "Invalid number: leading zero at position " .. start_pos, nil
-    end
-  end
-
-  if is_simple then
-    -- Fast path: already scanned a simple integer
-    local num_str = str_sub(str, start_pos, pos - 1)
-    local num = tonumber(num_str)
-    if not num then
-      return "Invalid number value at " .. start_pos, nil
-    end
-    return num, pos
-  end
-
-  -- Slow path: handle decimals and exponents
   -- Check for decimal part
   if b == 46 then -- '.'
     pos = pos + 1
     local next_b = str_byte(str, pos)
-    if not (next_b and next_b >= 48 and next_b <= 57) then -- 0-9
+    if not (next_b and next_b >= 48 and next_b <= 57) then
       return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
     end
     while pos <= len do
       b = str_byte(str, pos)
-      if b and b >= 48 and b <= 57 then -- 0-9
+      if b and b >= 48 and b <= 57 then
         pos = pos + 1
-      elseif b == 101 or b == 69 then   -- 'e', 'E'
+      elseif b == 101 or b == 69 then
         break
       else
         break
@@ -834,19 +846,19 @@ local function parse_number(str, pos, len)
   end
 
   -- Check for exponent
-  if b == 101 or b == 69 then -- 'e', 'E'
+  if b == 101 or b == 69 then
     pos = pos + 1
     b = str_byte(str, pos)
     if b == 43 or b == 45 then -- '+', '-'
       pos = pos + 1
       b = str_byte(str, pos)
     end
-    if not (b and b >= 48 and b <= 57) then -- 0-9
+    if not (b and b >= 48 and b <= 57) then
       return "Invalid number: exponent must have digits at position " .. start_pos, nil
     end
     while pos <= len do
       b = str_byte(str, pos)
-      if b and b >= 48 and b <= 57 then -- 0-9
+      if b and b >= 48 and b <= 57 then
         pos = pos + 1
       else
         break
