@@ -1,0 +1,1 @@
+{"type":"config","name":"Optimize wjson performance across Lua versions","metricName":"total_ms","metricUnit":"ms","bestDirection":"lower"}
