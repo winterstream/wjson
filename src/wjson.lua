@@ -191,6 +191,74 @@ for i = 0, 255 do
   end
 end
 
+-- LuaJIT-optimized escape: byte-indexed table + manual scanning
+-- (str_gsub is C-optimized in PUC Lua and beats manual scanning there)
+local escape_string
+if _G.jit then
+  local ESCAPE_STRINGS = {}
+  for i = 0, 255 do
+    if i < 32 then
+      if i == 8 then
+        ESCAPE_STRINGS[i] = "\\b"
+      elseif i == 12 then
+        ESCAPE_STRINGS[i] = "\\f"
+      elseif i == 10 then
+        ESCAPE_STRINGS[i] = "\\n"
+      elseif i == 13 then
+        ESCAPE_STRINGS[i] = "\\r"
+      elseif i == 9 then
+        ESCAPE_STRINGS[i] = "\\t"
+      else
+        ESCAPE_STRINGS[i] = str_format("\\u%04x", i)
+      end
+    elseif i == 34 then -- '"'
+      ESCAPE_STRINGS[i] = '\\"'
+    elseif i == 92 then -- '\\'
+      ESCAPE_STRINGS[i] = "\\\\"
+    else
+      ESCAPE_STRINGS[i] = nil
+    end
+  end
+
+  escape_string = function(str)
+    local len = #str
+    local i = 1
+    while i <= len do
+      local b = str_byte(str, i)
+      if b < 32 or b == 34 or b == 92 then
+        local parts = {}
+        local n = 0
+        local start = 1
+        while i <= len do
+          local b2 = str_byte(str, i)
+          local esc = ESCAPE_STRINGS[b2]
+          if esc then
+            if start < i then
+              n = n + 1
+              parts[n] = str_sub(str, start, i - 1)
+            end
+            n = n + 1
+            parts[n] = esc
+            start = i + 1
+          end
+          i = i + 1
+        end
+        if start <= len then
+          n = n + 1
+          parts[n] = str_sub(str, start, len)
+        end
+        return tbl_concat(parts)
+      end
+      i = i + 1
+    end
+    return nil
+  end
+else
+  escape_string = nil -- PUC Lua uses str_gsub directly
+end
+
+local ESCAPE_PATTERN = '[%z\1-\31\\"]'
+
 -- Decode escape lookup table (keyed by byte value for O(1) lookup)
 local DECODE_ESCAPES = {
   [BYTE_QUOTE] = '"',
@@ -224,10 +292,21 @@ local function encode_value(val, buf, buf_len)
   local t = type(val)
   if t == "string" then
     buf[buf_len + 1] = '"'
-    if not str_find(val, '[%z\1-\31\\"]') then
-      buf[buf_len + 2] = val
+    if escape_string then
+      -- LuaJIT: manual byte scanning
+      local escaped = escape_string(val)
+      if escaped then
+        buf[buf_len + 2] = escaped
+      else
+        buf[buf_len + 2] = val
+      end
     else
-      buf[buf_len + 2] = str_gsub(val, '[%z\1-\31\\"]', escapes)
+      -- PUC Lua: str_gsub (C-optimized)
+      if not str_find(val, ESCAPE_PATTERN) then
+        buf[buf_len + 2] = val
+      else
+        buf[buf_len + 2] = str_gsub(val, ESCAPE_PATTERN, escapes)
+      end
     end
     buf[buf_len + 3] = '"'
     return buf_len + 3
@@ -307,7 +386,22 @@ local function encode_value(val, buf, buf_len)
 
     local key_str = (type(k) == "string") and k or tostring(k)
     buf[buf_len + 1] = '"'
-    buf[buf_len + 2] = str_gsub(key_str, '[%z\1-\31\\"]', escapes)
+    if escape_string then
+      -- LuaJIT: manual byte scanning
+      local escaped = escape_string(key_str)
+      if escaped then
+        buf[buf_len + 2] = escaped
+      else
+        buf[buf_len + 2] = key_str
+      end
+    else
+      -- PUC Lua: str_gsub (C-optimized)
+      if not str_find(key_str, ESCAPE_PATTERN) then
+        buf[buf_len + 2] = key_str
+      else
+        buf[buf_len + 2] = str_gsub(key_str, ESCAPE_PATTERN, escapes)
+      end
+    end
     buf[buf_len + 3] = '":'
     buf_len = buf_len + 3
 
