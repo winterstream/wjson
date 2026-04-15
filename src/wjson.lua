@@ -346,6 +346,27 @@ local function encode_value(val, buf, buf_len)
   end
 
   local t = type(val)
+  if t == "number" then
+    if val ~= val then
+      buf_len = buf_len + 1
+      buf[buf_len] = "null" -- JSON doesn't support NaN
+      return buf_len
+    elseif val == math_huge or val == -math_huge then
+      buf_len = buf_len + 1
+      buf[buf_len] = "null" -- JSON doesn't support Infinity
+      return buf_len
+    end
+    local s = SMALL_INTS[val]
+    if s then
+      buf_len = buf_len + 1
+      buf[buf_len] = s
+      return buf_len
+    end
+    buf_len = buf_len + 1
+    buf[buf_len] = tostring(val)
+    return buf_len
+  end
+
   if t == "string" then
     buf[buf_len + 1] = '"'
     if escape_string then
@@ -366,27 +387,6 @@ local function encode_value(val, buf, buf_len)
     end
     buf[buf_len + 3] = '"'
     return buf_len + 3
-  end
-
-  if t == "number" then
-    if val ~= val then
-      buf_len = buf_len + 1
-      buf[buf_len] = "null" -- JSON doesn't support NaN
-      return buf_len
-    elseif val == math_huge or val == -math_huge then
-      buf_len = buf_len + 1
-      buf[buf_len] = "null" -- JSON doesn't support Infinity
-      return buf_len
-    end
-    local s = SMALL_INTS[val]
-    if s then
-      buf_len = buf_len + 1
-      buf[buf_len] = s
-      return buf_len
-    end
-    buf_len = buf_len + 1
-    buf[buf_len] = tostring(val)
-    return buf_len
   end
 
   if t == "boolean" then
