@@ -1027,7 +1027,26 @@ local function parse_object(str, pos, depth, len)
     if b ~= BYTE_QUOTE then
       return "Expected string key for object at " .. (pos or "?"), nil
     end
-    local key, new_pos = parse_string(str, pos, len)
+
+    local key, new_pos
+    -- Inline parse_string fast path for keys
+    local i = pos + 1
+    local start = i
+    while i <= len do
+      local b2 = str_byte(str, i)
+      if b2 == BYTE_QUOTE then
+        key = str_sub(str, start, i - 1)
+        new_pos = i + 1
+        break
+      end
+      if b2 < 32 or b2 == BYTE_BACKSLASH or b2 >= 128 then
+        -- Fall back to full parse_string
+        key, new_pos = parse_string(str, pos, len)
+        break
+      end
+      i = i + 1
+    end
+
     if not new_pos or not key then return key, nil end
     pos = new_pos
 
