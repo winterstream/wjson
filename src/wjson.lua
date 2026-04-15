@@ -236,28 +236,70 @@ if _G.jit then
     while i <= len do
       local b = str_byte(str, i)
       if b < 32 or b == 34 or b == 92 then
-        local parts = {}
+        -- Build escaped string using concatenation for small part counts,
+        -- tbl_concat for large counts
         local n = 0
         local start = 1
-        while i <= len do
-          local b2 = str_byte(str, i)
-          local esc = ESCAPE_STRINGS[b2]
-          if esc then
-            if start < i then
-              n = n + 1
-              parts[n] = str_sub(str, start, i - 1)
-            end
-            n = n + 1
-            parts[n] = esc
-            start = i + 1
+        -- First pass: count parts
+        local j = i
+        while j <= len do
+          local b2 = str_byte(str, j)
+          if b2 < 32 or b2 == 34 or b2 == 92 then
+            n = n + 2 -- escaped char + preceding chunk
+            j = j + 1
+          else
+            j = j + 1
           end
-          i = i + 1
         end
-        if start <= len then
-          n = n + 1
-          parts[n] = str_sub(str, start, len)
+        n = n + 1 -- final chunk
+
+        if n <= 8 then
+          -- Use string concatenation (avoids table allocation)
+          local result = ""
+          start = 1
+          j = i
+          while j <= len do
+            local b2 = str_byte(str, j)
+            local esc = ESCAPE_STRINGS[b2]
+            if esc then
+              if start < j then
+                result = result .. str_sub(str, start, j - 1)
+              end
+              result = result .. esc
+              start = j + 1
+            end
+            j = j + 1
+          end
+          if start <= len then
+            result = result .. str_sub(str, start, len)
+          end
+          return result
+        else
+          -- Use tbl_concat (avoids O(n^2) concatenation)
+          local parts = {}
+          local pn = 0
+          start = 1
+          j = i
+          while j <= len do
+            local b2 = str_byte(str, j)
+            local esc = ESCAPE_STRINGS[b2]
+            if esc then
+              if start < j then
+                pn = pn + 1
+                parts[pn] = str_sub(str, start, j - 1)
+              end
+              pn = pn + 1
+              parts[pn] = esc
+              start = j + 1
+            end
+            j = j + 1
+          end
+          if start <= len then
+            pn = pn + 1
+            parts[pn] = str_sub(str, start, len)
+          end
+          return tbl_concat(parts)
         end
-        return tbl_concat(parts)
       end
       i = i + 1
     end
@@ -446,10 +488,10 @@ end
 ---@param buffer any[]
 ---@return string?, string?
 local function encode(val, buffer)
-  local buf = buffer or tab_new(16384, 0)
+  local buf = buffer or shared_encode_buf
   local buf_len, err = encode_value(val, buf, 0)
   if err then
-    if buffer then clear_buffer(buffer, buf_len) end
+    clear_buffer(buf, buf_len)
     return nil, tostring(err)
   end
   return drain_buffer(buf, buf_len)
