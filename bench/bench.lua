@@ -22,18 +22,50 @@ local wjson = json_lib -- Keep variable name for compatibility or refactor; let'
 -- Random number generator seed
 math.randomseed(42)
 
+local function codepoint_to_utf8(cp)
+  if cp < 0x80 then
+    return string.char(cp)
+  elseif cp < 0x800 then
+    return string.char(
+      0xC0 + math.floor(cp / 64),
+      0x80 + (cp % 64)
+    )
+  elseif cp < 0x10000 then
+    return string.char(
+      0xE0 + math.floor(cp / 4096),
+      0x80 + (math.floor(cp / 64) % 64),
+      0x80 + (cp % 64)
+    )
+  else
+    return string.char(
+      0xF0 + math.floor(cp / 262144),
+      0x80 + (math.floor(cp / 4096) % 64),
+      0x80 + (math.floor(cp / 64) % 64),
+      0x80 + (cp % 64)
+    )
+  end
+end
+
 local function random_string(min_len, max_len)
   local len = math.random(min_len, max_len)
   local chars = {}
   for i = 1, len do
-    -- Pick printable ASCII chars mostly
-    -- occasionally throw in an escape requirement to test slow paths
-    if math.random() < 0.05 then
+    local r = math.random()
+    if r < 0.05 then
       chars[i] = string.char(math.random(1, 31)) -- Control char to escape
-    elseif math.random() < 0.05 then
+    elseif r < 0.10 then
       chars[i] = '\\'
-    elseif math.random() < 0.05 then
+    elseif r < 0.15 then
       chars[i] = '"'
+    elseif r < 0.25 then
+      -- Arabic: 2-byte UTF-8
+      chars[i] = codepoint_to_utf8(math.random(0x0600, 0x06FF))
+    elseif r < 0.35 then
+      -- Chinese: 3-byte UTF-8
+      chars[i] = codepoint_to_utf8(math.random(0x4E00, 0x9FFF))
+    elseif r < 0.45 then
+      -- Emoji: 4-byte UTF-8
+      chars[i] = codepoint_to_utf8(math.random(0x1F300, 0x1F9FF))
     else
       chars[i] = string.char(math.random(32, 126))
     end
@@ -213,6 +245,38 @@ for _, file in ipairs(dataset_files) do
     table.insert(datasets, { name = file:match("([^/]+)%.json%.gz$"), raw = content, length = #content })
   end
 end
+
+-- Generate a synthetic dataset with lots of \uXXXX sequences to test the decoder's backslash logic
+local function generate_unicode_escaped_json()
+  local parts = { "{\"synthetic_unicode\": [" }
+  for i = 1, 1000 do
+    local r = math.random()
+    if r < 0.3 then
+      -- Arabic: \uXXXX
+      table.insert(parts, string.format("\"\\u%04x\"", math.random(0x0600, 0x06FF)))
+    elseif r < 0.6 then
+      -- Chinese: \uXXXX
+      table.insert(parts, string.format("\"\\u%04x\"", math.random(0x4E00, 0x9FFF)))
+    else
+      -- Emoji: surrogate pair
+      local cp = math.random(0x1F300, 0x1F9FF)
+      cp = cp - 0x10000
+      local hi = 0xD800 + math.floor(cp / 1024)
+      local lo = 0xDC00 + (cp % 1024)
+      table.insert(parts, string.format("\"\\u%04x\\u%04x\"", hi, lo))
+    end
+    if i < 1000 then table.insert(parts, ",") end
+  end
+  table.insert(parts, "], \"mixed\": \"")
+  for i = 1, 100 do
+    table.insert(parts, string.format("hello \\u%04x world", math.random(0x0600, 0x06FF)))
+  end
+  table.insert(parts, "\"}")
+  return table.concat(parts)
+end
+
+local synthetic_json = generate_unicode_escaped_json()
+table.insert(datasets, { name = "synthetic-unicode-escapes", raw = synthetic_json, length = #synthetic_json })
 
 if #datasets > 0 then
   print("=========================================================================")
