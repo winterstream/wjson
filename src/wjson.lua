@@ -1048,15 +1048,15 @@ decode_value = function(str, pos, depth, len, b)
   if b == BYTE_LBRACKET then return parse_array(str, pos, depth, len) end
   if b == BYTE_LBRACE then return parse_object(str, pos, depth, len) end
 
-  if b == BYTE_T and str_byte(str, pos + 1) == 114 and str_byte(str, pos + 2) == 117 and str_byte(str, pos + 3) == 101 then -- true
+  if b == BYTE_T and str_sub(str, pos, pos + 3) == "true" then
     return true, pos + 4
   end
 
-  if b == BYTE_F and str_byte(str, pos + 1) == 97 and str_byte(str, pos + 2) == 108 and str_byte(str, pos + 3) == 115 and str_byte(str, pos + 4) == 101 then -- false
+  if b == BYTE_F and str_sub(str, pos, pos + 4) == "false" then
     return false, pos + 5
   end
 
-  if b == BYTE_N and str_byte(str, pos + 1) == 117 and str_byte(str, pos + 2) == 108 and str_byte(str, pos + 3) == 108 then -- null
+  if b == BYTE_N and str_sub(str, pos, pos + 3) == "null" then
     return null, pos + 4
   end
 
