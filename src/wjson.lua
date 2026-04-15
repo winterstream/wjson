@@ -536,6 +536,15 @@ if _G.jit then
 
     while i <= len do
       local b = str_byte(str, i)
+
+      -- Tight inner loop for ASCII characters (no escapes, no quotes, no UTF-8)
+      while b and b >= 32 and b < 128 and b ~= BYTE_BACKSLASH and b ~= BYTE_QUOTE do
+        i = i + 1
+        b = str_byte(str, i)
+      end
+
+      if not b then break end
+
       if b == BYTE_QUOTE then
         if chunk_start <= i - 1 then
           n = n + 1
