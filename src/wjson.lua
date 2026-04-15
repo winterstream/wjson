@@ -838,8 +838,10 @@ local function parse_number(str, pos, len)
     end
     pos = pos + 1
     -- Check if followed by '.', 'e', 'E' (slow path)
-    b = str_byte(str, pos)
-    if not (b == 46 or b == 101 or b == 69) then -- '.', 'e', 'E'
+    local next_b = str_byte(str, pos)
+    if next_b == 46 or next_b == 101 or next_b == 69 then -- '.', 'e', 'E'
+      -- Fall through to slow path
+    else
       return negative and -0 or 0, pos
     end
   else
@@ -861,14 +863,28 @@ local function parse_number(str, pos, len)
   end
 
   -- Slow path: handle decimals and exponents via tonumber(str_sub(...))
-  -- b is now '.', 'e', or 'E'
+  -- Re-scan from start_pos since we need the full string for tonumber
+  pos = start_pos + (negative and 1 or 0)
+  b = str_byte(str, pos)
+  -- Skip digits before decimal/exponent
+  while pos <= len do
+    b = str_byte(str, pos)
+    if b and b >= 48 and b <= 57 then
+      pos = pos + 1
+    elseif b == 46 or b == 101 or b == 69 then
+      break
+    else
+      break
+    end
+  end
+
+  -- Check for decimal part
   if b == 46 then -- '.'
     pos = pos + 1
-    b = str_byte(str, pos)
-    if not (b and b >= 48 and b <= 57) then
+    local next_b = str_byte(str, pos)
+    if not (next_b and next_b >= 48 and next_b <= 57) then
       return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
     end
-    pos = pos + 1
     while pos <= len do
       b = str_byte(str, pos)
       if b and b >= 48 and b <= 57 then
@@ -892,7 +908,6 @@ local function parse_number(str, pos, len)
     if not (b and b >= 48 and b <= 57) then
       return "Invalid number: exponent must have digits at position " .. start_pos, nil
     end
-    pos = pos + 1
     while pos <= len do
       b = str_byte(str, pos)
       if b and b >= 48 and b <= 57 then
