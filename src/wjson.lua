@@ -941,18 +941,30 @@ local function parse_array(str, pos, depth, len)
     n = n + 1
     arr[n] = val
 
-    -- skip whitespace
-    pos, b = skip_whitespace(str, pos)
+    -- skip whitespace or peek comma/bracket
+    b = str_byte(str, pos)
     if b == BYTE_COMMA then
       local comma_pos = pos
       pos = pos + 1
-      -- Check for trailing comma
       pos, b = skip_whitespace(str, pos)
       if b == BYTE_RBRACKET then
         return "Trailing comma in array at " .. comma_pos, nil
       end
-    elseif b ~= BYTE_RBRACKET then
-      return "Expected ] or , at " .. pos, nil
+    elseif b == BYTE_RBRACKET then
+      -- proceed to end of while loop
+    else
+      pos, b = skip_whitespace(str, pos)
+      if b == BYTE_COMMA then
+        local comma_pos = pos
+        pos = pos + 1
+        -- Check for trailing comma
+        pos, b = skip_whitespace(str, pos)
+        if b == BYTE_RBRACKET then
+          return "Trailing comma in array at " .. comma_pos, nil
+        end
+      elseif b ~= BYTE_RBRACKET then
+        return "Expected ] or , at " .. pos, nil
+      end
     end
   end
   return setmetatable(arr, array_mt), pos + 1
@@ -979,15 +991,20 @@ local function parse_object(str, pos, depth, len)
     pos = new_pos
 
     -- Colon
-    -- skip whitespace
-    pos, b = skip_whitespace(str, pos)
-    if b ~= BYTE_COLON then
-      return "Expected : after key at " .. pos, nil
+    -- skip whitespace / peek colon
+    b = str_byte(str, pos)
+    if b == BYTE_COLON then
+      pos = pos + 1
+    else
+      pos, b = skip_whitespace(str, pos)
+      if b ~= BYTE_COLON then
+        return "Expected : after key at " .. pos, nil
+      end
+      pos = pos + 1
     end
-    pos = pos + 1
 
     -- Value
-    -- skip whitespace
+    -- skip whitespace / peek value
     pos, b = skip_whitespace(str, pos)
     local val, val_pos = decode_value(str, pos, depth + 1, len, b)
     if not val_pos then return val, nil end
@@ -995,8 +1012,8 @@ local function parse_object(str, pos, depth, len)
     obj[key] = val
 
     -- Comma or End
-    -- skip whitespace
-    pos, b = skip_whitespace(str, pos)
+    -- skip whitespace / peek comma/brace
+    b = str_byte(str, pos)
     if b == BYTE_COMMA then
       local comma_pos = pos
       pos = pos + 1
@@ -1004,8 +1021,20 @@ local function parse_object(str, pos, depth, len)
       if b == BYTE_RBRACE then
         return "Trailing comma in object at " .. comma_pos, nil
       end
-    elseif b ~= BYTE_RBRACE then
-      return "Expected } or , at " .. pos, nil
+    elseif b == BYTE_RBRACE then
+      -- proceed
+    else
+      pos, b = skip_whitespace(str, pos)
+      if b == BYTE_COMMA then
+        local comma_pos = pos
+        pos = pos + 1
+        pos, b = skip_whitespace(str, pos)
+        if b == BYTE_RBRACE then
+          return "Trailing comma in object at " .. comma_pos, nil
+        end
+      elseif b ~= BYTE_RBRACE then
+        return "Expected } or , at " .. pos, nil
+      end
     end
   end
   return obj, pos + 1
