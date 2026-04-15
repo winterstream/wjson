@@ -884,7 +884,7 @@ local function parse_number(str, pos, len)
     pos = pos + 1
     while pos <= len do
       b = str_byte(str, pos)
-      if b and b >= 48 and b <= 57 then -- 0-9
+      if b >= 48 and b <= 57 then -- 0-9
         num = num * 10 + (b - 48)
         pos = pos + 1
       elseif b == 46 or b == 101 or b == 69 then -- '.', 'e', 'E'
@@ -903,7 +903,7 @@ local function parse_number(str, pos, len)
   -- Skip digits before decimal/exponent
   while pos <= len do
     b = str_byte(str, pos)
-    if b and b >= 48 and b <= 57 then
+    if b >= 48 and b <= 57 then
       pos = pos + 1
     elseif b == 46 or b == 101 or b == 69 then
       break
@@ -921,7 +921,7 @@ local function parse_number(str, pos, len)
     end
     while pos <= len do
       b = str_byte(str, pos)
-      if b and b >= 48 and b <= 57 then
+      if b >= 48 and b <= 57 then
         pos = pos + 1
       elseif b == 101 or b == 69 then
         break
@@ -944,7 +944,7 @@ local function parse_number(str, pos, len)
     end
     while pos <= len do
       b = str_byte(str, pos)
-      if b and b >= 48 and b <= 57 then
+      if b >= 48 and b <= 57 then
         pos = pos + 1
       else
         break
