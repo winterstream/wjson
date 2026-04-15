@@ -36,6 +36,7 @@ Optimize the performance (encode and decode speed) of the wjson library while ma
 - **Faster Dispatch**: Moved the number check to the top of `decode_value` (Run 21).
 - **Shared Escape Parts Table**: Use a shared table for parts in `escape_string` (Run 22).
 - **Inlined UTF-8 Validation**: Inlined branches for 2, 3, and 4-byte UTF-8 sequences in `parse_string` (Run 23).
+- **Reduced Whitespace Calls**: Optimized `parse_array` and `parse_object` loops to avoid redundant `skip_whitespace` calls (Run 33).
 
 ### Discarded Attempts (Regressions or Noise)
 - **Manual escape_string for all Lua versions**: Massive regression in PUC Lua (Run 2).
@@ -59,6 +60,8 @@ Optimize the performance (encode and decode speed) of the wjson library while ma
 - **Use band instead of % for UTF-8 math**: Regression/noise (Run 28).
 - **Remove redundant byte fallback in decode_value**: Regression/noise (Run 29).
 - **Inline string key fast path in parse_object**: Code complexity hurt JIT (Run 30).
+- **Add tight inner loop for ASCII characters in parse_string slow path**: Regression (Run 31).
+- **Move number check before string check in encode_value**: Massive regression (Run 32).
 
 ## Optimization Ideas
 - Inline hot functions, reduce table allocations, improve string building.

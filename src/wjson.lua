@@ -971,14 +971,9 @@ local function parse_array(str, pos, depth, len)
   local n = 0
   pos = pos + 1 -- skip [
 
-  while true do
-    -- skip whitespace
-    local b
-    pos, b = skip_whitespace(str, pos)
-    if b == BYTE_RBRACKET then
-      return setmetatable(arr, array_mt), pos + 1
-    end
-
+  local b
+  pos, b = skip_whitespace(str, pos)
+  while b ~= BYTE_RBRACKET do
     local val, new_pos = decode_value(str, pos, depth + 1, len, b)
     if not new_pos then return val, nil end
     pos = new_pos
@@ -988,21 +983,18 @@ local function parse_array(str, pos, depth, len)
     -- skip whitespace
     pos, b = skip_whitespace(str, pos)
     if b == BYTE_COMMA then
+      local comma_pos = pos
       pos = pos + 1
       -- Check for trailing comma
-      local next_pos, b2 = skip_whitespace(str, pos)
-      if b2 == BYTE_RBRACKET then
-        return "Trailing comma in array at " .. pos, nil
+      pos, b = skip_whitespace(str, pos)
+      if b == BYTE_RBRACKET then
+        return "Trailing comma in array at " .. comma_pos, nil
       end
-      pos = next_pos
-      goto continue
-    end
-
-    if b ~= BYTE_RBRACKET then
+    elseif b ~= BYTE_RBRACKET then
       return "Expected ] or , at " .. pos, nil
     end
-    ::continue::
   end
+  return setmetatable(arr, array_mt), pos + 1
 end
 
 ---@param str string
@@ -1014,15 +1006,9 @@ local function parse_object(str, pos, depth, len)
   local obj = tab_new(0, 8)
   pos = pos + 1 -- skip {
 
-  while true do
-    -- skip whitespace
-    local b
-    pos, b = skip_whitespace(str, pos)
-
-    if b == BYTE_RBRACE then
-      return obj, pos + 1
-    end
-
+  local b
+  pos, b = skip_whitespace(str, pos)
+  while b ~= BYTE_RBRACE do
     -- Parse Key
     if b ~= BYTE_QUOTE then
       return "Expected string key for object at " .. (pos or "?"), nil
@@ -1051,20 +1037,17 @@ local function parse_object(str, pos, depth, len)
     -- skip whitespace
     pos, b = skip_whitespace(str, pos)
     if b == BYTE_COMMA then
+      local comma_pos = pos
       pos = pos + 1
-      local next_pos, b2 = skip_whitespace(str, pos)
-      if b2 == BYTE_RBRACE then
-        return "Trailing comma in object at " .. pos, nil
+      pos, b = skip_whitespace(str, pos)
+      if b == BYTE_RBRACE then
+        return "Trailing comma in object at " .. comma_pos, nil
       end
-      pos = next_pos
-      goto continue
-    end
-
-    if b ~= BYTE_RBRACE then
+    elseif b ~= BYTE_RBRACE then
       return "Expected } or , at " .. pos, nil
     end
-    ::continue::
   end
+  return obj, pos + 1
 end
 
 ---@param str string
