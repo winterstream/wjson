@@ -201,6 +201,8 @@ for i = 0, 255 do
   end
 end
 
+local ESCAPE_PATTERN = '[%z\1-\31\\"]'
+
 -- LuaJIT-optimized escape: byte-indexed table + manual scanning
 -- (str_gsub is C-optimized in PUC Lua and beats manual scanning there)
 local escape_string
@@ -231,85 +233,82 @@ if _G.jit then
   end
 
   escape_string = function(str)
-    local len = #str
-    local i = 1
-    while i <= len do
-      local b = str_byte(str, i)
-      if b < 32 or b == 34 or b == 92 then
-        -- Build escaped string using concatenation for small part counts,
-        -- tbl_concat for large counts
-        local n = 0
-        local start = 1
-        -- First pass: count parts
-        local j = i
-        while j <= len do
-          local b2 = str_byte(str, j)
-          if b2 < 32 or b2 == 34 or b2 == 92 then
-            n = n + 2 -- escaped char + preceding chunk
-            j = j + 1
-          else
-            j = j + 1
-          end
-        end
-        n = n + 1 -- final chunk
+    local i = str_find(str, ESCAPE_PATTERN)
+    if not i then return nil end
 
-        if n <= 8 then
-          -- Use string concatenation (avoids table allocation)
-          local result = ""
-          start = 1
-          j = i
-          while j <= len do
-            local b2 = str_byte(str, j)
-            local esc = ESCAPE_STRINGS[b2]
-            if esc then
-              if start < j then
-                result = result .. str_sub(str, start, j - 1)
-              end
-              result = result .. esc
-              start = j + 1
-            end
-            j = j + 1
-          end
-          if start <= len then
-            result = result .. str_sub(str, start, len)
-          end
-          return result
-        else
-          -- Use tbl_concat (avoids O(n^2) concatenation)
-          local parts = {}
-          local pn = 0
-          start = 1
-          j = i
-          while j <= len do
-            local b2 = str_byte(str, j)
-            local esc = ESCAPE_STRINGS[b2]
-            if esc then
-              if start < j then
-                pn = pn + 1
-                parts[pn] = str_sub(str, start, j - 1)
-              end
-              pn = pn + 1
-              parts[pn] = esc
-              start = j + 1
-            end
-            j = j + 1
-          end
-          if start <= len then
-            pn = pn + 1
-            parts[pn] = str_sub(str, start, len)
-          end
-          return tbl_concat(parts)
-        end
+    local len = #str
+    local b = str_byte(str, i)
+    -- Build escaped string using concatenation for small part counts,
+    -- tbl_concat for large counts
+    local n = 0
+    local start = 1
+    -- First pass: count parts
+    local j = i
+    while j <= len do
+      local b2 = str_byte(str, j)
+      if b2 < 32 or b2 == 34 or b2 == 92 then
+        n = n + 2 -- escaped char + preceding chunk
+        j = j + 1
+      else
+        j = j + 1
       end
-      i = i + 1
     end
-    return nil
+    n = n + 1 -- final chunk
+
+    if n <= 8 then
+      -- Use string concatenation (avoids table allocation)
+      local result = ""
+      start = 1
+      j = i
+      while j <= len do
+        local b2 = str_byte(str, j)
+        local esc = ESCAPE_STRINGS[b2]
+        if esc then
+          if start < j then
+            result = result .. str_sub(str, start, j - 1)
+          end
+          result = result .. esc
+          start = j + 1
+        end
+        j = j + 1
+      end
+      if start <= len then
+        result = result .. str_sub(str, start, len)
+      end
+      return result
+    else
+      -- Use tbl_concat (avoids O(n^2) concatenation)
+      local parts = {}
+      local pn = 0
+      start = 1
+      j = i
+      while j <= len do
+        local b2 = str_byte(str, j)
+        local esc = ESCAPE_STRINGS[b2]
+        if esc then
+          if start < j then
+            pn = pn + 1
+            parts[pn] = str_sub(str, start, j - 1)
+          end
+          pn = pn + 1
+          parts[pn] = esc
+          start = j + 1
+        end
+        j = j + 1
+      end
+      if start <= len then
+        pn = pn + 1
+        parts[pn] = str_sub(str, start, len)
+      end
+      return tbl_concat(parts)
+    end
   end
 else
   escape_string = nil -- PUC Lua uses str_gsub directly
 end
 
-local ESCAPE_PATTERN = '[%z\1-\31\\"]'
+-- Re-define pattern for PUC Lua usage
+local ESCAPE_PATTERN_PUC = ESCAPE_PATTERN
 
 -- Decode escape lookup table (keyed by byte value for O(1) lookup)
 local DECODE_ESCAPES = {
