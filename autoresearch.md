@@ -26,19 +26,35 @@ Optimize the performance (encode and decode speed) of the wjson library while ma
 - No new dependencies (pure Lua only).
 - Keep compatibility with Lua 5.2+ and LuaJIT.
 
+## Baseline (Established 2026-04-16)
+New baseline established after modifying `bench/bench.lua` to clear JIT traces, randomize dataset order, and include new synthetic benchmarks. Previous benchmarks are now obsolete.
+
+### Integrated Optimizations (Part of Baseline)
+The following optimizations from previous runs are already integrated into the baseline code:
+- **Conditional String Escaping**: Use manual byte scanning for LuaJIT and `str_gsub` for PUC Lua (prev Run 3).
+- **Direct Integer Parsing**: Avoid `tonumber(str_sub)` by accumulating integers from bytes (prev Run 4).
+- **Extended Integer Cache**: Extended `SMALL_INTS` from 0-9 to 0-99 (prev Run 6).
+- **Shared Encode Buffer**: Use a pre-allocated table for string building in `encode` (prev Run 14).
+- **Shared String Parts Table**: Use a shared table for string parts in `parse_string` to avoid allocations (prev Run 19).
+- **Faster Dispatch**: Moved the number check to the top of `decode_value` (prev Run 21).
+- **Shared Escape Parts Table**: Use a shared table for parts in `escape_string` (prev Run 22).
+- **Inlined UTF-8 Validation**: Inlined branches for 2, 3, and 4-byte UTF-8 sequences in `parse_string` (prev Run 23).
+- **Reduced Whitespace Calls**: Optimized `parse_array` and `parse_object` loops to avoid redundant `skip_whitespace` calls (prev Run 33).
+
 ## What's Been Tried
 ### Kept Optimizations
-- **Conditional String Escaping**: Use manual byte scanning for LuaJIT and `str_gsub` for PUC Lua (Run 3).
-- **Direct Integer Parsing**: Avoid `tonumber(str_sub)` by accumulating integers from bytes (Run 4).
-- **Extended Integer Cache**: Extended `SMALL_INTS` from 0-9 to 0-99 (Run 6).
-- **Shared Encode Buffer**: Use a pre-allocated table for string building in `encode` (Run 14).
-- **Shared String Parts Table**: Use a shared table for string parts in `parse_string` to avoid allocations (Run 19).
-- **Faster Dispatch**: Moved the number check to the top of `decode_value` (Run 21).
-- **Shared Escape Parts Table**: Use a shared table for parts in `escape_string` (Run 22).
-- **Inlined UTF-8 Validation**: Inlined branches for 2, 3, and 4-byte UTF-8 sequences in `parse_string` (Run 23).
-- **Reduced Whitespace Calls**: Optimized `parse_array` and `parse_object` loops to avoid redundant `skip_whitespace` calls (Run 33).
+- **Positive Integer Fast-Path**: Inlined parsing for non-zero positive integers (1-9) in `decode_value` to avoid function calls for common IDs/counts. Provided a small but consistent win (Run 5).
+- **Structural Peeking**: Added byte peeking for structural characters (`,`, `]`, `}`, `:`) in `parse_array` and `parse_object` to avoid `skip_whitespace` in compact JSON. Improved PUC Lua performance by up to 4% (Run 4).
+- **Multi-byte Literal Fetch**: Used multi-argument `str_byte` to fetch literals (`true`, `false`, `null`) and Unicode hex digits in one call. Reduced function call overhead and improved performance by ~2-3% across versions (Run 3).
+- **Single-pass Escape String (LuaJIT)**: Optimized `escape_string` by removing the redundant part-counting pass. Improved LuaJIT encode speed by ~8% (Run 2).
 
 ### Discarded Attempts (Regressions or Noise)
+- **Remove top-level UTF-8 Check**: Discarded as it regressed performance in PUC Lua 5.3+ environments where `utf8.len` is faster than manual scanning. Combined with Run 2 attempt.
+
+## Archive: Obsolete Runs (Prior to 2026-04-16 Reset)
+<details>
+<summary>View Archived Attempts</summary>
+
 - **Manual escape_string for all Lua versions**: Massive regression in PUC Lua (Run 2).
 - **Move depth check to array/object branches**: Worse performance (Run 5).
 - **Extend SMALL_INTS to 0-999**: Table too large, lookup cost > savings (Run 7).
@@ -62,6 +78,7 @@ Optimize the performance (encode and decode speed) of the wjson library while ma
 - **Inline string key fast path in parse_object**: Code complexity hurt JIT (Run 30).
 - **Add tight inner loop for ASCII characters in parse_string slow path**: Regression (Run 31).
 - **Move number check before string check in encode_value**: Massive regression (Run 32).
+</details>
 
 ## Optimization Ideas
 - Inline hot functions, reduce table allocations, improve string building.
