@@ -19,6 +19,17 @@ end
 
 local wjson = json_lib -- Keep variable name for compatibility or refactor; let's refactor to json_lib
 
+local is_luajit = jit ~= nil
+local warmup_iters = is_luajit and 5 or 0
+
+local function reset_jit_and_gc()
+  if is_luajit then
+    jit.flush()
+    jit.on()
+  end
+  collectgarbage("collect")
+end
+
 -- Random number generator seed
 math.randomseed(42)
 
@@ -122,12 +133,11 @@ local function generate_deep_nested(depth, min_len, max_len)
 end
 
 local function measure(tbl, iterations)
-  collectgarbage("collect")
   local ok, str = pcall(json_lib.encode, tbl)
   if not ok then return 0, 0 end
 
   -- Warmup
-  for i = 1, 10 do
+  for i = 1, warmup_iters do
     json_lib.encode(tbl)
     json_lib.decode(str)
   end
@@ -151,6 +161,7 @@ local function run_benchmark(label, generator, sets, iters_per_set)
   local total_e, total_d = 0, 0
   for _ = 1, sets do
     local tbl = generator()
+    reset_jit_and_gc()
     local e, d = measure(tbl, iters_per_set)
     total_e = total_e + e
     total_d = total_d + d
@@ -205,31 +216,7 @@ local function read_file(path)
   return content
 end
 
-local function measure_dataset(raw_string, iterations)
-  collectgarbage("collect")
-  local ok, tbl = pcall(json_lib.decode, raw_string)
-  if not ok then return 0, 0 end
 
-  -- Warmup
-  for i = 1, math.min(3, iterations) do
-    json_lib.decode(raw_string)
-    pcall(json_lib.encode, tbl)
-  end
-
-  local start = os.clock()
-  for i = 1, iterations do
-    json_lib.encode(tbl)
-  end
-  local encode_time = os.clock() - start
-
-  start = os.clock()
-  for i = 1, iterations do
-    json_lib.decode(raw_string)
-  end
-  local decode_time = os.clock() - start
-
-  return encode_time, decode_time
-end
 
 local datasets = {}
 local dataset_files = {
@@ -294,7 +281,7 @@ local function generate_complex_numbers_json()
     else
       -- Large decimal representations
       local sign = math.random() > 0.5 and "-" or ""
-      table.insert(parts, sign .. "0." .. string.rep(tostring(math.random(0,9)), math.random(10, 30)))
+      table.insert(parts, sign .. "0." .. string.rep(tostring(math.random(0, 9)), math.random(10, 30)))
     end
     if i < 3000 then table.insert(parts, ",") end
   end
@@ -306,26 +293,74 @@ local synthetic_json = generate_unicode_escaped_json()
 table.insert(datasets, { name = "synthetic-unicode-escapes", raw = synthetic_json, length = #synthetic_json })
 
 local synthetic_numbers_json = generate_complex_numbers_json()
-table.insert(datasets, { name = "synthetic-complex-numbers", raw = synthetic_numbers_json, length = #synthetic_numbers_json })
+table.insert(datasets,
+  { name = "synthetic-complex-numbers", raw = synthetic_numbers_json, length = #synthetic_numbers_json })
+
+local function run_dataset_benchmarks(ds_list)
+  -- Pre-decode for encode benchmarking
+  for _, ds in ipairs(ds_list) do
+    local ok, tbl = pcall(json_lib.decode, ds.raw)
+    ds.tbl = ok and tbl or nil
+  end
+
+  local max_iters = 0
+  for _, ds in ipairs(ds_list) do
+    if ds.length > 5000000 then    -- Size > ~5MB
+      ds.iters = 5
+    elseif ds.length > 500000 then -- Size > ~500KB
+      ds.iters = 10
+    else
+      ds.iters = 20
+    end
+    max_iters = math.max(max_iters, ds.iters)
+    ds.e_total = 0
+    ds.d_total = 0
+    ds.done = 0
+  end
+
+  -- Fisher-Yates shuffle helper
+  local function shuffle(t)
+    for i = #t, 2, -1 do
+      local j = math.random(i)
+      t[i], t[j] = t[j], t[i]
+    end
+  end
+
+  local order = {}
+  for i, _ in ipairs(ds_list) do order[i] = i end
+
+  for pass = 1, max_iters do
+    shuffle(order)
+    reset_jit_and_gc()
+    for _, idx in ipairs(order) do
+      local ds = ds_list[idx]
+      if ds.done < ds.iters then
+        if ds.tbl then
+          local t0 = os.clock()
+          json_lib.encode(ds.tbl)
+          ds.e_total = ds.e_total + (os.clock() - t0)
+        end
+        local t0 = os.clock()
+        json_lib.decode(ds.raw)
+        ds.d_total = ds.d_total + (os.clock() - t0)
+        ds.done = ds.done + 1
+      end
+    end
+  end
+
+  for _, ds in ipairs(ds_list) do
+    local avg_e = (ds.e_total / ds.iters) * 1000
+    local avg_d = (ds.d_total / ds.iters) * 1000
+
+    print(string.format("%-45s | Encode: %6.2f ms | Decode: %6.2f ms", "Dataset: " .. ds.name, avg_e, avg_d))
+  end
+end
 
 if #datasets > 0 then
   print("=========================================================================")
   print("Real-world Datasets")
   print("=========================================================================")
-  for _, ds in ipairs(datasets) do
-    local iters = 20
-    if ds.length > 5000000 then    -- Size > ~5MB
-      iters = 5
-    elseif ds.length > 500000 then -- Size > ~500KB
-      iters = 10
-    end
-
-    local e, d = measure_dataset(ds.raw, iters)
-    local avg_e = (e / iters) * 1000
-    local avg_d = (d / iters) * 1000
-
-    print(string.format("%-45s | Encode: %6.2f ms | Decode: %6.2f ms", "Dataset: " .. ds.name, avg_e, avg_d))
-  end
+  run_dataset_benchmarks(datasets)
 end
 
 print("=========================================================================")
