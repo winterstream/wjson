@@ -60,73 +60,193 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 --]==]
 
 -- Localize frequently used functions for performance
-local str_byte        = string.byte
-local str_sub         = string.sub
-local str_char        = string.char
-local str_format      = string.format
-local str_gsub        = string.gsub
-local str_find        = string.find
-local tbl_concat      = table.concat
-local tostring        = tostring
-local tonumber        = tonumber
-local type            = type
-local getmetatable    = getmetatable
-local next            = next
-local math_huge       = math.huge
+local str_byte                   = string.byte
+local str_sub                    = string.sub
+local str_char                   = string.char
+local str_format                 = string.format
+local str_gsub                   = string.gsub
+local str_find                   = string.find
+local tbl_concat                 = table.concat
+local tostring                   = tostring
+local tonumber                   = tonumber
+local type                       = type
+local getmetatable               = getmetatable
+local next                       = next
+local math_huge                  = math.huge
 
-local BYTE_LBRACKET   = str_byte("[")
-local BYTE_RBRACKET   = str_byte("]")
-local BYTE_LBRACE     = str_byte("{")
-local BYTE_RBRACE     = str_byte("}")
-local BYTE_COLON      = str_byte(":")
-local BYTE_COMMA      = str_byte(",")
-local BYTE_QUOTE      = str_byte('"')
-local BYTE_BACKSLASH  = str_byte("\\")
-local BYTE_SLASH      = str_byte("/")
-local BYTE_B          = str_byte("b")
-local BYTE_F          = str_byte("f")
-local BYTE_N          = str_byte("n")
-local BYTE_R          = str_byte("r")
-local BYTE_T          = str_byte("t")
-local BYTE_U          = str_byte("u")
+local BYTE_LBRACKET              = str_byte("[")
+local BYTE_RBRACKET              = str_byte("]")
+local BYTE_LBRACE                = str_byte("{")
+local BYTE_RBRACE                = str_byte("}")
+local BYTE_COLON                 = str_byte(":")
+local BYTE_COMMA                 = str_byte(",")
+local BYTE_QUOTE                 = str_byte('"')
+local BYTE_BACKSLASH             = str_byte("\\")
+local BYTE_SLASH                 = str_byte("/")
+local BYTE_DOT                   = str_byte(".")
+local BYTE_MINUS                 = str_byte("-")
+local BYTE_PLUS                  = str_byte("+")
+local BYTE_0                     = str_byte("0")
+local BYTE_1                     = str_byte("1")
+local BYTE_9                     = str_byte("9")
+local BYTE_A                     = str_byte("a")
+local BYTE_B                     = str_byte("b")
+local BYTE_E                     = str_byte("e")
+local BYTE_F                     = str_byte("f")
+local BYTE_L                     = str_byte("l")
+local BYTE_N                     = str_byte("n")
+local BYTE_R                     = str_byte("r")
+local BYTE_S                     = str_byte("s")
+local BYTE_T                     = str_byte("t")
+local BYTE_U                     = str_byte("u")
+local BYTE_UPPER_A               = str_byte("A")
+local BYTE_UPPER_E               = str_byte("E")
+local BYTE_UPPER_F               = str_byte("F")
+local BYTE_SPACE                 = str_byte(" ")
+local BYTE_LF                    = str_byte("\n")
+local BYTE_CR                    = str_byte("\r")
+local BYTE_TAB                   = str_byte("\t")
+local BYTE_BS                    = str_byte("\b")
+local BYTE_FF                    = str_byte("\f")
+
+local UTF8_1BYTE_LIMIT           = 0x80
+local UTF8_2BYTE_LIMIT           = 0x800
+local UTF8_3BYTE_LIMIT           = 0x10000
+
+local UTF8_CONTINUATION_MARK     = 0x80
+local UTF8_2BYTE_MARK            = 0xC0
+local UTF8_3BYTE_MARK            = 0xE0
+local UTF8_4BYTE_MARK            = 0xF0
+
+local UTF8_2BYTE_MIN             = 0xC2
+local UTF8_4BYTE_MAX             = 0xF4
+
+local UNICODE_SURROGATE_HIGH_MIN = 0xD800
+local UNICODE_SURROGATE_HIGH_MAX = 0xDBFF
+local UNICODE_SURROGATE_LOW_MIN  = 0xDC00
+local UNICODE_SURROGATE_LOW_MAX  = 0xDFFF
+
+local HEX_WEIGHT_NIBBLE_4        = 4096
+local HEX_WEIGHT_NIBBLE_3        = 256
+local HEX_WEIGHT_NIBBLE_2        = 16
 
 --- Sentinel for null values, compatible with ngx.null if available
-local null            = setmetatable({}, {
+local null                       = setmetatable({}, {
   __tostring = function() return "null" end,
   __tojson = function() return "null" end,
 })
 
-local SMALL_INTS      = {
-  [0] = "0", [1] = "1", [2] = "2", [3] = "3", [4] = "4",
-  [5] = "5", [6] = "6", [7] = "7", [8] = "8", [9] = "9",
-  [10] = "10", [11] = "11", [12] = "12", [13] = "13", [14] = "14",
-  [15] = "15", [16] = "16", [17] = "17", [18] = "18", [19] = "19",
-  [20] = "20", [21] = "21", [22] = "22", [23] = "23", [24] = "24",
-  [25] = "25", [26] = "26", [27] = "27", [28] = "28", [29] = "29",
-  [30] = "30", [31] = "31", [32] = "32", [33] = "33", [34] = "34",
-  [35] = "35", [36] = "36", [37] = "37", [38] = "38", [39] = "39",
-  [40] = "40", [41] = "41", [42] = "42", [43] = "43", [44] = "44",
-  [45] = "45", [46] = "46", [47] = "47", [48] = "48", [49] = "49",
-  [50] = "50", [51] = "51", [52] = "52", [53] = "53", [54] = "54",
-  [55] = "55", [56] = "56", [57] = "57", [58] = "58", [59] = "59",
-  [60] = "60", [61] = "61", [62] = "62", [63] = "63", [64] = "64",
-  [65] = "65", [66] = "66", [67] = "67", [68] = "68", [69] = "69",
-  [70] = "70", [71] = "71", [72] = "72", [73] = "73", [74] = "74",
-  [75] = "75", [76] = "76", [77] = "77", [78] = "78", [79] = "79",
-  [80] = "80", [81] = "81", [82] = "82", [83] = "83", [84] = "84",
-  [85] = "85", [86] = "86", [87] = "87", [88] = "88", [89] = "89",
-  [90] = "90", [91] = "91", [92] = "92", [93] = "93", [94] = "94",
-  [95] = "95", [96] = "96", [97] = "97", [98] = "98", [99] = "99",
+local SMALL_INTS                 = {
+  [0] = "0",
+  [1] = "1",
+  [2] = "2",
+  [3] = "3",
+  [4] = "4",
+  [5] = "5",
+  [6] = "6",
+  [7] = "7",
+  [8] = "8",
+  [9] = "9",
+  [10] = "10",
+  [11] = "11",
+  [12] = "12",
+  [13] = "13",
+  [14] = "14",
+  [15] = "15",
+  [16] = "16",
+  [17] = "17",
+  [18] = "18",
+  [19] = "19",
+  [20] = "20",
+  [21] = "21",
+  [22] = "22",
+  [23] = "23",
+  [24] = "24",
+  [25] = "25",
+  [26] = "26",
+  [27] = "27",
+  [28] = "28",
+  [29] = "29",
+  [30] = "30",
+  [31] = "31",
+  [32] = "32",
+  [33] = "33",
+  [34] = "34",
+  [35] = "35",
+  [36] = "36",
+  [37] = "37",
+  [38] = "38",
+  [39] = "39",
+  [40] = "40",
+  [41] = "41",
+  [42] = "42",
+  [43] = "43",
+  [44] = "44",
+  [45] = "45",
+  [46] = "46",
+  [47] = "47",
+  [48] = "48",
+  [49] = "49",
+  [50] = "50",
+  [51] = "51",
+  [52] = "52",
+  [53] = "53",
+  [54] = "54",
+  [55] = "55",
+  [56] = "56",
+  [57] = "57",
+  [58] = "58",
+  [59] = "59",
+  [60] = "60",
+  [61] = "61",
+  [62] = "62",
+  [63] = "63",
+  [64] = "64",
+  [65] = "65",
+  [66] = "66",
+  [67] = "67",
+  [68] = "68",
+  [69] = "69",
+  [70] = "70",
+  [71] = "71",
+  [72] = "72",
+  [73] = "73",
+  [74] = "74",
+  [75] = "75",
+  [76] = "76",
+  [77] = "77",
+  [78] = "78",
+  [79] = "79",
+  [80] = "80",
+  [81] = "81",
+  [82] = "82",
+  [83] = "83",
+  [84] = "84",
+  [85] = "85",
+  [86] = "86",
+  [87] = "87",
+  [88] = "88",
+  [89] = "89",
+  [90] = "90",
+  [91] = "91",
+  [92] = "92",
+  [93] = "93",
+  [94] = "94",
+  [95] = "95",
+  [96] = "96",
+  [97] = "97",
+  [98] = "98",
+  [99] = "99",
 }
 
-local array_mt        = {}
+local array_mt                   = {}
 
-local ok, tab_new_req = pcall(require, "table.new")
+local ok, tab_new_req            = pcall(require, "table.new")
 ---@type fun(narr: integer, nrec: integer): table
-local tab_new         = ok and tab_new_req or function() return {} end
+local tab_new                    = ok and tab_new_req or function() return {} end
 
 -- Bitwise compatibility check
-local bit             = _G.bit32
+local bit                        = _G.bit32
 if not bit then
   pcall(function() bit = require("bit") end)
 end
@@ -159,7 +279,7 @@ local skip_whitespace
 if _G.jit then
   skip_whitespace = function(str, pos)
     local b = str_byte(str, pos)
-    while b == 32 or b == 10 or b == 13 or b == 9 do
+    while b == BYTE_SPACE or b == BYTE_LF or b == BYTE_CR or b == BYTE_TAB do
       pos = pos + 1
       b = str_byte(str, pos)
     end
@@ -178,7 +298,7 @@ end
 local escapes = {}
 for i = 0, 255 do
   local c = str_char(i)
-  if i < 32 then
+  if i < BYTE_SPACE then
     if c == "\b" then
       escapes[c] = "\\b"
     elseif c == "\f" then
@@ -209,23 +329,23 @@ local escape_string
 if _G.jit then
   local ESCAPE_STRINGS = {}
   for i = 0, 255 do
-    if i < 32 then
-      if i == 8 then
+    if i < BYTE_SPACE then
+      if i == BYTE_BS then
         ESCAPE_STRINGS[i] = "\\b"
-      elseif i == 12 then
+      elseif i == BYTE_FF then
         ESCAPE_STRINGS[i] = "\\f"
-      elseif i == 10 then
+      elseif i == BYTE_LF then
         ESCAPE_STRINGS[i] = "\\n"
-      elseif i == 13 then
+      elseif i == BYTE_CR then
         ESCAPE_STRINGS[i] = "\\r"
-      elseif i == 9 then
+      elseif i == BYTE_TAB then
         ESCAPE_STRINGS[i] = "\\t"
       else
         ESCAPE_STRINGS[i] = str_format("\\u%04x", i)
       end
-    elseif i == 34 then -- '"'
+    elseif i == BYTE_QUOTE then
       ESCAPE_STRINGS[i] = '\\"'
-    elseif i == 92 then -- '\\'
+    elseif i == BYTE_BACKSLASH then
       ESCAPE_STRINGS[i] = "\\\\"
     else
       ESCAPE_STRINGS[i] = nil
@@ -236,12 +356,12 @@ if _G.jit then
     local len = #str
     for i = 1, len do
       local b = str_byte(str, i)
-      if b < 32 or b == 34 or b == 92 then
+      if b < BYTE_SPACE or b == BYTE_QUOTE or b == BYTE_BACKSLASH then
         -- Escape needed: use shared table for building
         local parts = shared_encode_parts
         local pn = 1
         local start = 1
-        
+
         -- Start building from the first escaped character
         local j = i
         while j <= len do
@@ -290,9 +410,9 @@ local DECODE_ESCAPES = {
 
 local HEX_VALUES = {}
 for i = 0, 255 do HEX_VALUES[i] = nil end
-for i = 48, 57 do HEX_VALUES[i] = i - 48 end  -- 0-9
-for i = 65, 70 do HEX_VALUES[i] = i - 55 end  -- A-F
-for i = 97, 102 do HEX_VALUES[i] = i - 87 end -- a-f
+for i = BYTE_0, BYTE_9 do HEX_VALUES[i] = i - BYTE_0 end
+for i = BYTE_UPPER_A, BYTE_UPPER_F do HEX_VALUES[i] = i - BYTE_UPPER_A + 10 end
+for i = BYTE_A, BYTE_F do HEX_VALUES[i] = i - BYTE_A + 10 end
 
 
 ---@param val any
@@ -480,7 +600,7 @@ if _G.jit then
       if b == BYTE_QUOTE then
         return str_sub(str, start, i - 1), i + 1
       end
-      if b < 32 or b == BYTE_BACKSLASH or b >= 128 then break end
+      if b < BYTE_SPACE or b == BYTE_BACKSLASH or b >= UTF8_1BYTE_LIMIT then break end
       i = i + 1
     end
     if i > len then
@@ -508,32 +628,32 @@ if _G.jit then
       end
 
       if b ~= BYTE_BACKSLASH then
-        if b < 32 then -- control character
+        if b < BYTE_SPACE then -- control character
           for j = 1, n do parts[j] = nil end
           return "Unescaped control character at position " .. i, nil
         end
         -- UTF-8 validation
-        if b >= 0x80 then
-          if b >= 0xC2 and b < 0xE0 then -- 2-byte sequence
+        if b >= UTF8_1BYTE_LIMIT then
+          if b >= UTF8_2BYTE_MIN and b < UTF8_3BYTE_MARK then -- 2-byte sequence
             local b2 = str_byte(str, i + 1)
-            if not b2 or b2 < 0x80 or b2 >= 0xC0 then
+            if not b2 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK then
               for j = 1, n do parts[j] = nil end
               return "Invalid UTF-8 sequence at position " .. i, nil
             end
             i = i + 2
-          elseif b >= 0xE0 and b < 0xF0 then -- 3-byte sequence
+          elseif b >= UTF8_3BYTE_MARK and b < UTF8_4BYTE_MARK then -- 3-byte sequence
             local b2 = str_byte(str, i + 1)
             local b3 = str_byte(str, i + 2)
-            if not b3 or b2 < 0x80 or b2 >= 0xC0 or b3 < 0x80 or b3 >= 0xC0 then
+            if not b3 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK or b3 < UTF8_CONTINUATION_MARK or b3 >= UTF8_2BYTE_MARK then
               for j = 1, n do parts[j] = nil end
               return "Invalid UTF-8 sequence at position " .. i, nil
             end
             i = i + 3
-          elseif b >= 0xF0 and b < 0xF5 then -- 4-byte sequence
+          elseif b >= UTF8_4BYTE_MARK and b <= UTF8_4BYTE_MAX then -- 4-byte sequence
             local b2 = str_byte(str, i + 1)
             local b3 = str_byte(str, i + 2)
             local b4 = str_byte(str, i + 3)
-            if not b4 or b2 < 0x80 or b2 >= 0xC0 or b3 < 0x80 or b3 >= 0xC0 or b4 < 0x80 or b4 >= 0xC0 then
+            if not b4 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK or b3 < UTF8_CONTINUATION_MARK or b3 >= UTF8_2BYTE_MARK or b4 < UTF8_CONTINUATION_MARK or b4 >= UTF8_2BYTE_MARK then
               for j = 1, n do parts[j] = nil end
               return "Invalid UTF-8 sequence at position " .. i, nil
             end
@@ -571,35 +691,35 @@ if _G.jit then
           return "Invalid unicode escape at " .. i, nil
         end
 
-        local code = h1 * 4096 + h2 * 256 + h3 * 16 + h4
+        local code = h1 * HEX_WEIGHT_NIBBLE_4 + h2 * HEX_WEIGHT_NIBBLE_3 + h3 * HEX_WEIGHT_NIBBLE_2 + h4
 
         -- Basic UTF-8 conversion (Happy paths for 1, 2, 3 byte characters)
-        if code < 0x80 then
+        if code < UTF8_1BYTE_LIMIT then
           n = n + 1
           parts[n] = str_char(code)
           i = i + 4
           goto continue_loop
         end
 
-        if code < 0x800 then
+        if code < UTF8_2BYTE_LIMIT then
           n = n + 1
-          parts[n] = str_char(0xC0 + rshift(code, 6), 0x80 + (code % 0x40))
+          parts[n] = str_char(UTF8_2BYTE_MARK + rshift(code, 6), UTF8_CONTINUATION_MARK + (code % 0x40))
           i = i + 4
           goto continue_loop
         end
 
-        if code < 0xD800 or code > 0xDFFF then
+        if code < UNICODE_SURROGATE_HIGH_MIN or code > UNICODE_SURROGATE_LOW_MAX then
           -- Normal 3-byte sequence (BMP), excluding surrogates
           n = n + 1
-          parts[n] = str_char(0xE0 + rshift(code, 12),
-            0x80 + (band(rshift(code, 6), 0x3F)),
-            0x80 + (code % 0x40))
+          parts[n] = str_char(UTF8_3BYTE_MARK + rshift(code, 12),
+            UTF8_CONTINUATION_MARK + (band(rshift(code, 6), 0x3F)),
+            UTF8_CONTINUATION_MARK + (code % 0x40))
           i = i + 4
           goto continue_loop
         end
 
         -- Surrogate pair handling
-        if code < 0xD800 or code > 0xDBFF then
+        if code < UNICODE_SURROGATE_HIGH_MIN or code > UNICODE_SURROGATE_HIGH_MAX then
           for j = 1, n do parts[j] = nil end
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
@@ -620,20 +740,21 @@ if _G.jit then
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
-        local low_code = l1 * 4096 + l2 * 256 + l3 * 16 + l4
-        if low_code < 0xDC00 or low_code > 0xDFFF then
+        local low_code = l1 * HEX_WEIGHT_NIBBLE_4 + l2 * HEX_WEIGHT_NIBBLE_3 + l3 * HEX_WEIGHT_NIBBLE_2 + l4
+        if low_code < UNICODE_SURROGATE_LOW_MIN or low_code > UNICODE_SURROGATE_LOW_MAX then
           for j = 1, n do parts[j] = nil end
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
         -- Valid surrogate pair found
-        local combined = 0x10000 + ((code - 0xD800) * 1024) + (low_code - 0xDC00)
+        local combined = UTF8_3BYTE_LIMIT + ((code - UNICODE_SURROGATE_HIGH_MIN) * 1024) +
+            (low_code - UNICODE_SURROGATE_LOW_MIN)
         n = n + 1
         parts[n] = str_char(
-          0xF0 + rshift(combined, 18),
-          0x80 + band(rshift(combined, 12), 0x3F),
-          0x80 + band(rshift(combined, 6), 0x3F),
-          0x80 + band(combined, 0x3F)
+          UTF8_4BYTE_MARK + rshift(combined, 18),
+          UTF8_CONTINUATION_MARK + band(rshift(combined, 12), 0x3F),
+          UTF8_CONTINUATION_MARK + band(rshift(combined, 6), 0x3F),
+          UTF8_CONTINUATION_MARK + band(combined, 0x3F)
         )
         i = i + 10 -- Skip both \uXXXX sequences (6 + 4)
         goto continue_loop
@@ -689,19 +810,19 @@ else
       end
 
       if b ~= BYTE_BACKSLASH then
-        if b < 32 then -- control character
+        if b < BYTE_SPACE then -- control character
           return "Unescaped control character at position " .. i, nil
         end
         -- UTF-8 validation
-        if b >= 0x80 then
-          if b < 0xC2 or b >= 0xF5 then
+        if b >= UTF8_1BYTE_LIMIT then
+          if b < UTF8_2BYTE_MIN or b > UTF8_4BYTE_MAX then
             return "Invalid UTF-8 sequence at position " .. i, nil
           end
-          local expected = (b >= 0xF0 and 3) or (b >= 0xE0 and 2) or 1
+          local expected = (b >= UTF8_4BYTE_MARK and 3) or (b >= UTF8_3BYTE_MARK and 2) or 1
           for _ = 1, expected do
             i = i + 1
             local b2 = str_byte(str, i)
-            if not b2 or b2 < 0x80 or b2 >= 0xC0 then
+            if not b2 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK then
               return "Invalid UTF-8 sequence at position " .. i, nil
             end
           end
@@ -732,29 +853,29 @@ else
           return "Invalid unicode escape at " .. i, nil
         end
 
-        local code = h1 * 4096 + h2 * 256 + h3 * 16 + h4
+        local code = h1 * HEX_WEIGHT_NIBBLE_4 + h2 * HEX_WEIGHT_NIBBLE_3 + h3 * HEX_WEIGHT_NIBBLE_2 + h4
 
         -- Basic UTF-8 conversion (Happy paths for 1, 2, 3 byte characters)
-        if code < 0x80 then
+        if code < UTF8_1BYTE_LIMIT then
           n = n + 1
           parts[n] = str_char(code)
           i = i + 4
           goto continue_loop
         end
 
-        if code < 0x800 then
+        if code < UTF8_2BYTE_LIMIT then
           n = n + 1
-          parts[n] = str_char(0xC0 + rshift(code, 6), 0x80 + (code % 0x40))
+          parts[n] = str_char(UTF8_2BYTE_MARK + rshift(code, 6), UTF8_CONTINUATION_MARK + (code % 0x40))
           i = i + 4
           goto continue_loop
         end
 
-        if code < 0xD800 or code > 0xDFFF then
+        if code < UNICODE_SURROGATE_HIGH_MIN or code > UNICODE_SURROGATE_LOW_MAX then
           -- Normal 3-byte sequence (BMP), excluding surrogates
           n = n + 1
-          parts[n] = str_char(0xE0 + rshift(code, 12),
-            0x80 + (band(rshift(code, 6), 0x3F)),
-            0x80 + (code % 0x40))
+          parts[n] = str_char(UTF8_3BYTE_MARK + rshift(code, 12),
+            UTF8_CONTINUATION_MARK + (band(rshift(code, 6), 0x3F)),
+            UTF8_CONTINUATION_MARK + (code % 0x40))
           i = i + 4
           goto continue_loop
         end
@@ -774,19 +895,20 @@ else
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
-        local low_code = l1 * 4096 + l2 * 256 + l3 * 16 + l4
-        if low_code < 0xDC00 or low_code > 0xDFFF then
+        local low_code = l1 * HEX_WEIGHT_NIBBLE_4 + l2 * HEX_WEIGHT_NIBBLE_3 + l3 * HEX_WEIGHT_NIBBLE_2 + l4
+        if low_code < UNICODE_SURROGATE_LOW_MIN or low_code > UNICODE_SURROGATE_LOW_MAX then
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
         -- Valid surrogate pair found
-        local combined = 0x10000 + ((code - 0xD800) * 1024) + (low_code - 0xDC00)
+        local combined = UTF8_3BYTE_LIMIT + ((code - UNICODE_SURROGATE_HIGH_MIN) * 1024) +
+            (low_code - UNICODE_SURROGATE_LOW_MIN)
         n = n + 1
         parts[n] = str_char(
-          0xF0 + rshift(combined, 18),
-          0x80 + band(rshift(combined, 12), 0x3F),
-          0x80 + band(rshift(combined, 6), 0x3F),
-          0x80 + band(combined, 0x3F)
+          UTF8_4BYTE_MARK + rshift(combined, 18),
+          UTF8_CONTINUATION_MARK + band(rshift(combined, 12), 0x3F),
+          UTF8_CONTINUATION_MARK + band(rshift(combined, 6), 0x3F),
+          UTF8_CONTINUATION_MARK + band(combined, 0x3F)
         )
         i = i + 10 -- Skip both \uXXXX sequences (6 + 4)
         goto continue_loop
@@ -813,42 +935,42 @@ local function parse_number(str, pos, len)
   local negative = false
 
   -- Handle optional minus sign
-  if b == 45 then -- '-'
+  if b == BYTE_MINUS then
     negative = true
     pos = pos + 1
     b = str_byte(str, pos)
   end
 
-  if not (b and b >= 48 and b <= 57) then -- 0-9
+  if not (b and b >= BYTE_0 and b <= BYTE_9) then
     return "Invalid number at position " .. start_pos, nil
   end
 
   -- Fast path: compute small integers directly from byte values
   -- Avoids str_sub + tonumber allocation for the common case
-  if b == 48 then -- '0'
+  if b == BYTE_0 then
     -- Check for leading zero followed by digit (invalid: 01, 023)
     local after_zero = str_byte(str, pos + 1)
-    if after_zero and after_zero >= 48 and after_zero <= 57 then
+    if after_zero and after_zero >= BYTE_0 and after_zero <= BYTE_9 then
       return "Invalid number: leading zero at position " .. start_pos, nil
     end
     pos = pos + 1
     -- Check if followed by '.', 'e', 'E' (slow path)
     local next_b = str_byte(str, pos)
-    if next_b == 46 or next_b == 101 or next_b == 69 then -- '.', 'e', 'E'
+    if next_b == BYTE_DOT or next_b == BYTE_E or next_b == BYTE_UPPER_E then
       -- Fall through to slow path
     else
       return negative and -0 or 0, pos
     end
   else
     -- Non-zero first digit: try to accumulate integer directly
-    local num = b - 48
+    local num = b - BYTE_0
     pos = pos + 1
     while pos <= len do
       b = str_byte(str, pos)
-      if b and b >= 48 and b <= 57 then -- 0-9
-        num = num * 10 + (b - 48)
+      if b and b >= BYTE_0 and b <= BYTE_9 then
+        num = num * 10 + (b - BYTE_0)
         pos = pos + 1
-      elseif b == 46 or b == 101 or b == 69 then -- '.', 'e', 'E'
+      elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
         break
       else
         if negative then num = -num end
@@ -864,9 +986,9 @@ local function parse_number(str, pos, len)
   -- Skip digits before decimal/exponent
   while pos <= len do
     b = str_byte(str, pos)
-    if b and b >= 48 and b <= 57 then
+    if b and b >= BYTE_0 and b <= BYTE_9 then
       pos = pos + 1
-    elseif b == 46 or b == 101 or b == 69 then
+    elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
       break
     else
       break
@@ -874,17 +996,17 @@ local function parse_number(str, pos, len)
   end
 
   -- Check for decimal part
-  if b == 46 then -- '.'
+  if b == BYTE_DOT then
     pos = pos + 1
     local next_b = str_byte(str, pos)
-    if not (next_b and next_b >= 48 and next_b <= 57) then
+    if not (next_b and next_b >= BYTE_0 and next_b <= BYTE_9) then
       return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
     end
     while pos <= len do
       b = str_byte(str, pos)
-      if b and b >= 48 and b <= 57 then
+      if b and b >= BYTE_0 and b <= BYTE_9 then
         pos = pos + 1
-      elseif b == 101 or b == 69 then
+      elseif b == BYTE_E or b == BYTE_UPPER_E then
         break
       else
         break
@@ -893,19 +1015,19 @@ local function parse_number(str, pos, len)
   end
 
   -- Check for exponent
-  if b == 101 or b == 69 then
+  if b == BYTE_E or b == BYTE_UPPER_E then
     pos = pos + 1
     b = str_byte(str, pos)
-    if b == 43 or b == 45 then -- '+', '-'
+    if b == BYTE_PLUS or b == BYTE_MINUS then
       pos = pos + 1
       b = str_byte(str, pos)
     end
-    if not (b and b >= 48 and b <= 57) then
+    if not (b and b >= BYTE_0 and b <= BYTE_9) then
       return "Invalid number: exponent must have digits at position " .. start_pos, nil
     end
     while pos <= len do
       b = str_byte(str, pos)
-      if b and b >= 48 and b <= 57 then
+      if b and b >= BYTE_0 and b <= BYTE_9 then
         pos = pos + 1
       else
         break
@@ -1051,15 +1173,15 @@ decode_value = function(str, pos, depth, len, b)
   b = b or str_byte(str, pos)
   if not b then return "Unexpected EOF", nil end
 
-  if b >= 49 and b <= 57 then -- 1-9 (positive integer fast path)
-    local num = b - 48
+  if b >= BYTE_1 and b <= BYTE_9 then -- 1-9 (positive integer fast path)
+    local num = b - BYTE_0
     local end_pos = pos + 1
     while end_pos <= len do
       local b2 = str_byte(str, end_pos)
-      if b2 and b2 >= 48 and b2 <= 57 then
-        num = num * 10 + (b2 - 48)
+      if b2 and b2 >= BYTE_0 and b2 <= BYTE_9 then
+        num = num * 10 + (b2 - BYTE_0)
         end_pos = end_pos + 1
-      elseif b2 == 46 or b2 == 101 or b2 == 69 then -- '.', 'e', 'E' (slow path)
+      elseif b2 == BYTE_DOT or b2 == BYTE_E or b2 == BYTE_UPPER_E then
         return parse_number(str, pos, len)
       else
         return num, end_pos
@@ -1068,7 +1190,7 @@ decode_value = function(str, pos, depth, len, b)
     return num, end_pos
   end
 
-  if b == 48 or b == 45 then -- 0 or -
+  if b == BYTE_0 or b == BYTE_MINUS then
     return parse_number(str, pos, len)
   end
 
@@ -1078,21 +1200,21 @@ decode_value = function(str, pos, depth, len, b)
 
   if b == BYTE_T then
     local b2, b3, b4 = str_byte(str, pos + 1, pos + 3)
-    if b2 == 114 and b3 == 117 and b4 == 101 then -- true
+    if b2 == BYTE_R and b3 == BYTE_U and b4 == BYTE_E then -- true
       return true, pos + 4
     end
   end
 
   if b == BYTE_F then
     local b2, b3, b4, b5 = str_byte(str, pos + 1, pos + 4)
-    if b2 == 97 and b3 == 108 and b4 == 115 and b5 == 101 then -- false
+    if b2 == BYTE_A and b3 == BYTE_L and b4 == BYTE_S and b5 == BYTE_E then -- false
       return false, pos + 5
     end
   end
 
   if b == BYTE_N then
     local b2, b3, b4 = str_byte(str, pos + 1, pos + 3)
-    if b2 == 117 and b3 == 108 and b4 == 108 then -- null
+    if b2 == BYTE_U and b3 == BYTE_L and b4 == BYTE_L then -- null
       return null, pos + 4
     end
   end
