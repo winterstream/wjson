@@ -967,7 +967,7 @@ end
 ---@param len integer
 ---@return any val_or_err, integer|nil pos
 local function parse_array(str, pos, depth, len)
-  local arr = tab_new(8, 0)
+  local arr = tab_new(32, 0)
   local n = 0
   pos = pos + 1 -- skip [
 
@@ -1011,7 +1011,7 @@ end
 ---@param len integer
 ---@return any val_or_err, integer|nil pos
 local function parse_object(str, pos, depth, len)
-  local obj = tab_new(0, 8)
+  local obj = tab_new(0, 32)
   pos = pos + 1 -- skip {
 
   while true do
