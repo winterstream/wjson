@@ -621,7 +621,7 @@ if _G.jit then
 
         if code < 0x800 then
           n = n + 1
-          parts[n] = str_char(0xC0 + rshift(code, 6), 0x80 + band(code, 0x3F))
+          parts[n] = str_char(0xC0 + rshift(code, 6), 0x80 + (code % 0x40))
           i = i + 4
           goto continue_loop
         end
@@ -631,7 +631,7 @@ if _G.jit then
           n = n + 1
           parts[n] = str_char(0xE0 + rshift(code, 12),
             0x80 + (band(rshift(code, 6), 0x3F)),
-            0x80 + band(code, 0x3F))
+            0x80 + (code % 0x40))
           i = i + 4
           goto continue_loop
         end
@@ -780,7 +780,7 @@ else
 
         if code < 0x800 then
           n = n + 1
-          parts[n] = str_char(0xC0 + rshift(code, 6), 0x80 + band(code, 0x3F))
+          parts[n] = str_char(0xC0 + rshift(code, 6), 0x80 + (code % 0x40))
           i = i + 4
           goto continue_loop
         end
@@ -790,7 +790,7 @@ else
           n = n + 1
           parts[n] = str_char(0xE0 + rshift(code, 12),
             0x80 + (band(rshift(code, 6), 0x3F)),
-            0x80 + band(code, 0x3F))
+            0x80 + (code % 0x40))
           i = i + 4
           goto continue_loop
         end
