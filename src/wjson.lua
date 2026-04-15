@@ -553,21 +553,37 @@ if _G.jit then
         end
         -- UTF-8 validation
         if b >= 0x80 then
-          if b < 0xC2 or b >= 0xF5 then
-            for j = 1, n do parts[j] = nil end
-            return "Invalid UTF-8 sequence at position " .. i, nil
-          end
-          local expected = (b >= 0xF0 and 3) or (b >= 0xE0 and 2) or 1
-          for _ = 1, expected do
-            i = i + 1
-            local b2 = str_byte(str, i)
+          if b >= 0xC2 and b < 0xE0 then -- 2-byte sequence
+            local b2 = str_byte(str, i + 1)
             if not b2 or b2 < 0x80 or b2 >= 0xC0 then
               for j = 1, n do parts[j] = nil end
               return "Invalid UTF-8 sequence at position " .. i, nil
             end
+            i = i + 2
+          elseif b >= 0xE0 and b < 0xF0 then -- 3-byte sequence
+            local b2 = str_byte(str, i + 1)
+            local b3 = str_byte(str, i + 2)
+            if not b3 or b2 < 0x80 or b2 >= 0xC0 or b3 < 0x80 or b3 >= 0xC0 then
+              for j = 1, n do parts[j] = nil end
+              return "Invalid UTF-8 sequence at position " .. i, nil
+            end
+            i = i + 3
+          elseif b >= 0xF0 and b < 0xF5 then -- 4-byte sequence
+            local b2 = str_byte(str, i + 1)
+            local b3 = str_byte(str, i + 2)
+            local b4 = str_byte(str, i + 3)
+            if not b4 or b2 < 0x80 or b2 >= 0xC0 or b3 < 0x80 or b3 >= 0xC0 or b4 < 0x80 or b4 >= 0xC0 then
+              for j = 1, n do parts[j] = nil end
+              return "Invalid UTF-8 sequence at position " .. i, nil
+            end
+            i = i + 4
+          else
+            for j = 1, n do parts[j] = nil end
+            return "Invalid UTF-8 sequence at position " .. i, nil
           end
+        else
+          i = i + 1
         end
-        i = i + 1
         goto continue
       end
 
