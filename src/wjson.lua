@@ -560,10 +560,11 @@ if _G.jit then
         parts[n] = escaped
       elseif c == BYTE_U then
         -- unicode \uXXXX
-        local h1 = HEX_VALUES[str_byte(str, i + 1)]
-        local h2 = HEX_VALUES[str_byte(str, i + 2)]
-        local h3 = HEX_VALUES[str_byte(str, i + 3)]
-        local h4 = HEX_VALUES[str_byte(str, i + 4)]
+        local b1, b2, b3, b4 = str_byte(str, i + 1, i + 4)
+        local h1 = HEX_VALUES[b1]
+        local h2 = HEX_VALUES[b2]
+        local h3 = HEX_VALUES[b3]
+        local h4 = HEX_VALUES[b4]
 
         if not (h1 and h2 and h3 and h4) then
           for j = 1, n do parts[j] = nil end
@@ -608,10 +609,11 @@ if _G.jit then
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
-        local l1 = HEX_VALUES[str_byte(str, i + 7)]
-        local l2 = HEX_VALUES[str_byte(str, i + 8)]
-        local l3 = HEX_VALUES[str_byte(str, i + 9)]
-        local l4 = HEX_VALUES[str_byte(str, i + 10)]
+        local b1, b2, b3, b4 = str_byte(str, i + 7, i + 10)
+        local l1 = HEX_VALUES[b1]
+        local l2 = HEX_VALUES[b2]
+        local l3 = HEX_VALUES[b3]
+        local l4 = HEX_VALUES[b4]
 
         if not (l1 and l2 and l3 and l4) then
           for j = 1, n do parts[j] = nil end
@@ -720,10 +722,11 @@ else
         parts[n] = escaped
       elseif c == BYTE_U then
         -- unicode \uXXXX
-        local h1 = HEX_VALUES[str_byte(str, i + 1)]
-        local h2 = HEX_VALUES[str_byte(str, i + 2)]
-        local h3 = HEX_VALUES[str_byte(str, i + 3)]
-        local h4 = HEX_VALUES[str_byte(str, i + 4)]
+        local b1, b2, b3, b4 = str_byte(str, i + 1, i + 4)
+        local h1 = HEX_VALUES[b1]
+        local h2 = HEX_VALUES[b2]
+        local h3 = HEX_VALUES[b3]
+        local h4 = HEX_VALUES[b4]
 
         if not (h1 and h2 and h3 and h4) then
           return "Invalid unicode escape at " .. i, nil
@@ -757,18 +760,15 @@ else
         end
 
         -- Surrogate pair handling
-        if code < 0xD800 or code > 0xDBFF then
-          return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
-        end
-
         if str_byte(str, i + 5) ~= BYTE_BACKSLASH or str_byte(str, i + 6) ~= BYTE_U then
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
-        local l1 = HEX_VALUES[str_byte(str, i + 7)]
-        local l2 = HEX_VALUES[str_byte(str, i + 8)]
-        local l3 = HEX_VALUES[str_byte(str, i + 9)]
-        local l4 = HEX_VALUES[str_byte(str, i + 10)]
+        local b1, b2, b3, b4 = str_byte(str, i + 7, i + 10)
+        local l1 = HEX_VALUES[b1]
+        local l2 = HEX_VALUES[b2]
+        local l3 = HEX_VALUES[b3]
+        local l4 = HEX_VALUES[b4]
 
         if not (l1 and l2 and l3 and l4) then
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
@@ -1030,16 +1030,25 @@ decode_value = function(str, pos, depth, len, b)
   if b == BYTE_LBRACKET then return parse_array(str, pos, depth, len) end
   if b == BYTE_LBRACE then return parse_object(str, pos, depth, len) end
 
-  if b == BYTE_T and str_byte(str, pos + 1) == 114 and str_byte(str, pos + 2) == 117 and str_byte(str, pos + 3) == 101 then -- true
-    return true, pos + 4
+  if b == BYTE_T then
+    local b2, b3, b4 = str_byte(str, pos + 1, pos + 3)
+    if b2 == 114 and b3 == 117 and b4 == 101 then -- true
+      return true, pos + 4
+    end
   end
 
-  if b == BYTE_F and str_byte(str, pos + 1) == 97 and str_byte(str, pos + 2) == 108 and str_byte(str, pos + 3) == 115 and str_byte(str, pos + 4) == 101 then -- false
-    return false, pos + 5
+  if b == BYTE_F then
+    local b2, b3, b4, b5 = str_byte(str, pos + 1, pos + 4)
+    if b2 == 97 and b3 == 108 and b4 == 115 and b5 == 101 then -- false
+      return false, pos + 5
+    end
   end
 
-  if b == BYTE_N and str_byte(str, pos + 1) == 117 and str_byte(str, pos + 2) == 108 and str_byte(str, pos + 3) == 108 then -- null
-    return null, pos + 4
+  if b == BYTE_N then
+    local b2, b3, b4 = str_byte(str, pos + 1, pos + 3)
+    if b2 == 117 and b3 == 108 and b4 == 108 then -- null
+      return null, pos + 4
+    end
   end
 
   return "Unexpected character at " .. pos .. ": " .. str_char(b or 0), nil
