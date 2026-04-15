@@ -201,6 +201,8 @@ for i = 0, 255 do
   end
 end
 
+local shared_encode_parts = tab_new(32, 0)
+
 -- LuaJIT-optimized escape: byte-indexed table + manual scanning
 -- (str_gsub is C-optimized in PUC Lua and beats manual scanning there)
 local escape_string
@@ -275,8 +277,8 @@ if _G.jit then
           end
           return result
         else
-          -- Use tbl_concat (avoids O(n^2) concatenation)
-          local parts = {}
+          -- Use shared table (avoids O(n^2) concatenation and table allocation)
+          local parts = shared_encode_parts
           local pn = 0
           start = 1
           j = i
@@ -298,7 +300,9 @@ if _G.jit then
             pn = pn + 1
             parts[pn] = str_sub(str, start, len)
           end
-          return tbl_concat(parts)
+          local result = tbl_concat(parts, "", 1, pn)
+          for k = 1, pn do parts[k] = nil end
+          return result
         end
       end
       i = i + 1
