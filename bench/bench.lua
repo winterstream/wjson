@@ -139,9 +139,9 @@ end
 print("Running benchmarks (20 data sets per type)...")
 print("=========================================================================")
 
-local sets = 10
-local iters_per_set = 10
-local iters_per_big_set = 3
+local sets = 20
+local iters_per_set = 20
+local iters_per_big_set = 10
 
 run_benchmark("Shallow Wide (Short Strings, 200 fields)", function()
   return generate_shallow_wide(32, 256)
@@ -219,11 +219,11 @@ if #datasets > 0 then
   print("Real-world Datasets")
   print("=========================================================================")
   for _, ds in ipairs(datasets) do
-    local iters = 10
+    local iters = 20
     if ds.length > 5000000 then    -- Size > ~5MB
-      iters = 2
-    elseif ds.length > 500000 then -- Size > ~500KB
       iters = 5
+    elseif ds.length > 500000 then -- Size > ~500KB
+      iters = 10
     end
 
     local e, d = measure_dataset(ds.raw, iters)
