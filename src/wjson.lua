@@ -1058,6 +1058,10 @@ decode_value = function(str, pos, depth, len, b)
   b = b or str_byte(str, pos)
   if not b then return "Unexpected EOF", nil end
 
+  if (b >= 48 and b <= 57) or b == 45 then -- 0-9 or -
+    return parse_number(str, pos, len)
+  end
+
   if b == BYTE_QUOTE then return parse_string(str, pos, len) end
   if b == BYTE_LBRACKET then return parse_array(str, pos, depth, len) end
   if b == BYTE_LBRACE then return parse_object(str, pos, depth, len) end
@@ -1072,10 +1076,6 @@ decode_value = function(str, pos, depth, len, b)
 
   if b == BYTE_N and str_byte(str, pos + 1) == 117 and str_byte(str, pos + 2) == 108 and str_byte(str, pos + 3) == 108 then -- null
     return null, pos + 4
-  end
-
-  if (b >= 48 and b <= 57) or b == 45 then -- 0-9 or -
-    return parse_number(str, pos, len)
   end
 
   return "Unexpected character at " .. pos .. ": " .. str_char(b or 0), nil
