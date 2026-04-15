@@ -1051,7 +1051,24 @@ decode_value = function(str, pos, depth, len, b)
   b = b or str_byte(str, pos)
   if not b then return "Unexpected EOF", nil end
 
-  if (b >= 48 and b <= 57) or b == 45 then -- 0-9 or -
+  if b >= 49 and b <= 57 then -- 1-9 (positive integer fast path)
+    local num = b - 48
+    local end_pos = pos + 1
+    while end_pos <= len do
+      local b2 = str_byte(str, end_pos)
+      if b2 and b2 >= 48 and b2 <= 57 then
+        num = num * 10 + (b2 - 48)
+        end_pos = end_pos + 1
+      elseif b2 == 46 or b2 == 101 or b2 == 69 then -- '.', 'e', 'E' (slow path)
+        return parse_number(str, pos, len)
+      else
+        return num, end_pos
+      end
+    end
+    return num, end_pos
+  end
+
+  if b == 48 or b == 45 then -- 0 or -
     return parse_number(str, pos, len)
   end
 
