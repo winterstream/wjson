@@ -510,6 +510,16 @@ if _G.jit then
     -- pos matches the opening quote
     local i = pos + 1
     local start = i
+    -- 4-byte scan for ASCII printable (no escapes)
+    while i + 3 <= len do
+      local b1, b2, b3, b4 = str_byte(str, i, i + 3)
+      if b1 < 32 or b1 == 34 or b1 == 92 or b1 >= 128 then break end
+      if b2 < 32 or b2 == 34 or b2 == 92 or b2 >= 128 then i = i + 1; break end
+      if b3 < 32 or b3 == 34 or b3 == 92 or b3 >= 128 then i = i + 2; break end
+      if b4 < 32 or b4 == 34 or b4 == 92 or b4 >= 128 then i = i + 3; break end
+      i = i + 4
+    end
+    -- Finish with single-byte loop for small strings or the end of a long string
     while i <= len do
       local b = str_byte(str, i)
       if b == BYTE_QUOTE then
