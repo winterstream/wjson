@@ -503,6 +503,8 @@ local decode_value -- forward declaration
 ---@type fun(str: string, pos: integer, len: integer): string|nil, integer|nil
 local parse_string
 
+local shared_string_parts = tab_new(32, 0)
+
 if _G.jit then
   parse_string = function(str, pos, len)
     -- pos matches the opening quote
@@ -520,7 +522,7 @@ if _G.jit then
       return "Unterminated string at position " .. pos, nil
     end
 
-    local parts = {}
+    local parts = shared_string_parts
     local n = 0
     if i > start then
       n = n + 1
@@ -535,16 +537,20 @@ if _G.jit then
           n = n + 1
           parts[n] = str_sub(str, chunk_start, i - 1)
         end
-        return tbl_concat(parts), i + 1
+        local result = tbl_concat(parts, "", 1, n)
+        for j = 1, n do parts[j] = nil end
+        return result, i + 1
       end
 
       if b ~= BYTE_BACKSLASH then
         if b < 32 then -- control character
+          for j = 1, n do parts[j] = nil end
           return "Unescaped control character at position " .. i, nil
         end
         -- UTF-8 validation
         if b >= 0x80 then
           if b < 0xC2 or b >= 0xF5 then
+            for j = 1, n do parts[j] = nil end
             return "Invalid UTF-8 sequence at position " .. i, nil
           end
           local expected = (b >= 0xF0 and 3) or (b >= 0xE0 and 2) or 1
@@ -552,6 +558,7 @@ if _G.jit then
             i = i + 1
             local b2 = str_byte(str, i)
             if not b2 or b2 < 0x80 or b2 >= 0xC0 then
+              for j = 1, n do parts[j] = nil end
               return "Invalid UTF-8 sequence at position " .. i, nil
             end
           end
@@ -578,6 +585,7 @@ if _G.jit then
         local h4 = HEX_VALUES[str_byte(str, i + 4)]
 
         if not (h1 and h2 and h3 and h4) then
+          for j = 1, n do parts[j] = nil end
           return "Invalid unicode escape at " .. i, nil
         end
 
@@ -610,10 +618,12 @@ if _G.jit then
 
         -- Surrogate pair handling
         if code < 0xD800 or code > 0xDBFF then
+          for j = 1, n do parts[j] = nil end
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
         if str_byte(str, i + 5) ~= BYTE_BACKSLASH or str_byte(str, i + 6) ~= BYTE_U then
+          for j = 1, n do parts[j] = nil end
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
@@ -623,11 +633,13 @@ if _G.jit then
         local l4 = HEX_VALUES[str_byte(str, i + 10)]
 
         if not (l1 and l2 and l3 and l4) then
+          for j = 1, n do parts[j] = nil end
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
         local low_code = l1 * 4096 + l2 * 256 + l3 * 16 + l4
         if low_code < 0xDC00 or low_code > 0xDFFF then
+          for j = 1, n do parts[j] = nil end
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
@@ -643,6 +655,7 @@ if _G.jit then
         i = i + 10 -- Skip both \uXXXX sequences (6 + 4)
         goto continue_loop
       else
+        for j = 1, n do parts[j] = nil end
         return "Invalid escape sequence \\\\" .. str_char(c or 0) .. " at position " .. i, nil
       end
       ::continue_loop::
@@ -651,6 +664,7 @@ if _G.jit then
       ::continue::
     end
 
+    for j = 1, n do parts[j] = nil end
     return "Unterminated string", nil
   end
 else
