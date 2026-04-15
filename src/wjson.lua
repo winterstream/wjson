@@ -155,11 +155,13 @@ end
 
 local utf8_len = (type(_G.utf8) == "table" and type(_G.utf8.len) == "function") and _G.utf8.len or nil
 
+local IS_WHITESPACE = { [32] = true, [10] = true, [13] = true, [9] = true }
+
 local skip_whitespace
 if _G.jit then
   skip_whitespace = function(str, pos)
     local b = str_byte(str, pos)
-    while b == 32 or b == 10 or b == 13 or b == 9 do
+    while IS_WHITESPACE[b] do
       pos = pos + 1
       b = str_byte(str, pos)
     end
