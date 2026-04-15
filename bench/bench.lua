@@ -275,8 +275,38 @@ local function generate_unicode_escaped_json()
   return table.concat(parts)
 end
 
+local function generate_complex_numbers_json()
+  local parts = { "{\"synthetic_numbers\": [" }
+  for i = 1, 3000 do
+    local r = math.random()
+    if r < 0.2 then
+      -- standard integer
+      table.insert(parts, tostring(math.random(-1000000, 1000000)))
+    elseif r < 0.4 then
+      -- Many decimal points
+      table.insert(parts, string.format("%.15f", math.random() * 200 - 100))
+    elseif r < 0.6 then
+      -- Scientific with negative exponent
+      table.insert(parts, string.format("%.5fe-%d", math.random() * 10, math.random(5, 50)))
+    elseif r < 0.8 then
+      -- Scientific with positive exponent
+      table.insert(parts, string.format("%.5fe+%d", math.random() * 10, math.random(5, 50)))
+    else
+      -- Large decimal representations
+      local sign = math.random() > 0.5 and "-" or ""
+      table.insert(parts, sign .. "0." .. string.rep(tostring(math.random(0,9)), math.random(10, 30)))
+    end
+    if i < 3000 then table.insert(parts, ",") end
+  end
+  table.insert(parts, "]}")
+  return table.concat(parts)
+end
+
 local synthetic_json = generate_unicode_escaped_json()
 table.insert(datasets, { name = "synthetic-unicode-escapes", raw = synthetic_json, length = #synthetic_json })
+
+local synthetic_numbers_json = generate_complex_numbers_json()
+table.insert(datasets, { name = "synthetic-complex-numbers", raw = synthetic_numbers_json, length = #synthetic_numbers_json })
 
 if #datasets > 0 then
   print("=========================================================================")
