@@ -997,30 +997,68 @@ local function parse_number(str, pos, len)
     end
   end
 
-  -- Slow path: continued linear scan for decimals and exponents
+  -- Slow path: handle decimals and exponents via tonumber(str_sub(...))
+  -- Re-scan from start_pos since we need the full string for tonumber
+  pos = start_pos + (negative and 1 or 0)
+  b = str_byte(str, pos)
+  -- Skip digits before decimal/exponent
   while pos <= len do
     b = str_byte(str, pos)
-    if b and ((b >= BYTE_0 and b <= BYTE_9) or b == BYTE_DOT
-       or b == BYTE_E or b == BYTE_UPPER_E
-       or b == BYTE_PLUS or b == BYTE_MINUS) then
+    if b and b >= BYTE_0 and b <= BYTE_9 then
       pos = pos + 1
+    elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
+      break
     else
       break
     end
   end
 
-  local num_str = str_sub(str, start_pos, pos - 1)
-  -- JSON-specific validation: tonumber() is too liberal
-  -- Rejected: "1.", "1.e1", "1.E-1" (dot must be followed by digits)
-  if str_byte(num_str, #num_str) == BYTE_DOT or str_find(num_str, "%.[eE]") then
-    return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
+  -- Check for decimal part
+  if b == BYTE_DOT then
+    pos = pos + 1
+    local next_b = str_byte(str, pos)
+    if not (next_b and next_b >= BYTE_0 and next_b <= BYTE_9) then
+      return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
+    end
+    while pos <= len do
+      b = str_byte(str, pos)
+      if b and b >= BYTE_0 and b <= BYTE_9 then
+        pos = pos + 1
+      elseif b == BYTE_E or b == BYTE_UPPER_E then
+        break
+      else
+        break
+      end
+    end
   end
 
-  local result = tonumber(num_str)
-  if not result then
-    return "Invalid number at position " .. start_pos, nil
+  -- Check for exponent
+  if b == BYTE_E or b == BYTE_UPPER_E then
+    pos = pos + 1
+    b = str_byte(str, pos)
+    if b == BYTE_PLUS or b == BYTE_MINUS then
+      pos = pos + 1
+      b = str_byte(str, pos)
+    end
+    if not (b and b >= BYTE_0 and b <= BYTE_9) then
+      return "Invalid number: exponent must have digits at position " .. start_pos, nil
+    end
+    while pos <= len do
+      b = str_byte(str, pos)
+      if b and b >= BYTE_0 and b <= BYTE_9 then
+        pos = pos + 1
+      else
+        break
+      end
+    end
   end
-  return result, pos
+
+  local num_str = str_sub(str, start_pos, pos - 1)
+  local num = tonumber(num_str)
+  if not num then
+    return "Invalid number value at " .. start_pos, nil
+  end
+  return num, pos
 end
 
 
