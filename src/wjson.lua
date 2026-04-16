@@ -415,6 +415,8 @@ for i = BYTE_UPPER_A, BYTE_UPPER_F do HEX_VALUES[i] = i - BYTE_UPPER_A + 10 end
 for i = BYTE_A, BYTE_F do HEX_VALUES[i] = i - BYTE_A + 10 end
 
 
+local ESCAPED_KEY_CACHE = setmetatable({}, { __mode = "kv" })
+
 ---@param val any
 ---@param buf string[]
 ---@param buf_len integer
@@ -510,6 +512,7 @@ local function encode_value(val, buf, buf_len)
     return buf_len
   end
 
+
   -- Object encoding
   buf_len = buf_len + 1
   buf[buf_len] = "{"
@@ -523,22 +526,24 @@ local function encode_value(val, buf, buf_len)
 
     local key_str = (type(k) == "string") and k or tostring(k)
     buf[buf_len + 1] = '"'
-    if escape_string then
-      -- LuaJIT: manual byte scanning
-      local escaped = escape_string(key_str)
-      if escaped then
-        buf[buf_len + 2] = escaped
+    
+    local escaped_key = ESCAPED_KEY_CACHE[key_str]
+    if not escaped_key then
+      if escape_string then
+        -- LuaJIT: manual byte scanning
+        escaped_key = escape_string(key_str) or key_str
       else
-        buf[buf_len + 2] = key_str
+        -- PUC Lua: str_find + str_gsub
+        if not str_find(key_str, ESCAPE_PATTERN) then
+          escaped_key = key_str
+        else
+          escaped_key = str_gsub(key_str, ESCAPE_PATTERN, escapes)
+        end
       end
-    else
-      -- PUC Lua: str_gsub (C-optimized)
-      if not str_find(key_str, ESCAPE_PATTERN) then
-        buf[buf_len + 2] = key_str
-      else
-        buf[buf_len + 2] = str_gsub(key_str, ESCAPE_PATTERN, escapes)
-      end
+      ESCAPED_KEY_CACHE[key_str] = escaped_key
     end
+
+    buf[buf_len + 2] = escaped_key
     buf[buf_len + 3] = '":'
     buf_len = buf_len + 3
 
