@@ -43,14 +43,16 @@ The following optimizations from previous runs are already integrated into the b
 
 ## What's Been Tried
 ### Kept Optimizations
-- **Escaped Key Cache** *(Run 6)*: Weak-valued cache for escaped object keys. +3.6% PUC Lua encode, but **-2.6% LuaJIT encode** (net: slightly worse LuaJIT total, better PUC Lua). ⚠️ The weak table lookup adds per-key overhead on LuaJIT where the JIT already inlines escape_string efficiently. Consider revisiting.
-- **Positive Integer Fast-Path** *(Run 5)*: Inlined parsing for 1-9-leading integers in `decode_value`. Delta: total_ms 151.07→150.39 = **0.45% improvement** — this is within noise. ⚠️ Adds code complexity to a trace-critical function.
-- **Structural Peeking** *(Run 4)*: Byte peeking for `,`, `]`, `}`, `:` in `parse_array`/`parse_object` to skip `skip_whitespace` in compact JSON. Delta: total_ms 150.89→151.07 = **+0.12% regression on LuaJIT** (noise), but solid win on PUC Lua 5.4 (-4.0%). Clearly good for PUC Lua; neutral for LuaJIT.
-- **Multi-byte Literal Fetch** *(Run 3)*: Multi-arg `str_byte` for literals and hex digits. Delta: 154.48→150.89 = **2.3% win**, consistent. Good change.
-- **Single-pass Escape String (LuaJIT)** *(Run 2)*: Removed dual-pass scanning. Delta: 159.46→154.48 = **3.1% total,  ~8% encode**. Clear win, well above noise.
+- **Gated JIT/PUC Paths** *(Run 7)*: Separated JIT and PUC implementations for `parse_array`, `parse_object`, and `encode_value`. Improved LuaJIT by **2.4%** by removing branching complexity that inhibited tracing.
+- **Flattened Object Encoder** *(Run 7)*: Handle first key-value pair outside the loop to remove the `first` branch.
+- **Escaped Key Cache** *(Run 6)*: Weak-valued cache for escaped object keys. Gated to **PUC Lua only** as it regressed LuaJIT encoding.
+- **Structural Peeking** *(Run 4)*: Byte peeking for structural characters. Gated to **PUC Lua only** to avoid redundant branching in LuaJIT.
+- **Multi-byte Literal Fetch** *(Run 3)*: Multi-arg `str_byte` for literals and hex digits. **2.3% win**, consistent.
+- **Single-pass Escape String (LuaJIT)** *(Run 2)*: Removed dual-pass scanning. **~8% encode win**.
 
 ### Discarded Attempts (Regressions or Noise)
-- **Remove top-level UTF-8 Check**: Discarded as it regressed performance in PUC Lua 5.3+ environments where `utf8.len` is faster than manual scanning. Combined with Run 2 attempt.
+- **Positive Integer Fast-Path (decode_value)**: Removed from `decode_value` to reduce trace root size. LuaJIT performance improved when this was extracted back to `parse_number` (Run 7).
+- **Remove top-level UTF-8 Check**: Discarded as it regressed performance in PUC Lua 5.3+ environments.
 
 ## Revisit / Sanity-Check
 
