@@ -516,41 +516,54 @@ local function encode_value(val, buf, buf_len)
   -- Object encoding
   buf_len = buf_len + 1
   buf[buf_len] = "{"
-  local first = true
-  while k ~= nil do
-    if not first then
-      buf_len = buf_len + 1
-      buf[buf_len] = ","
-    end
-    first = false
 
-    local key_str = (type(k) == "string") and k or tostring(k)
-    buf[buf_len + 1] = '"'
-    
-    local escaped_key = ESCAPED_KEY_CACHE[key_str]
+  -- Handle first key
+  local key_str = (type(k) == "string") and k or tostring(k)
+  buf[buf_len + 1] = '"'
+  
+  local escaped_key
+  if not _G.jit then
+    escaped_key = ESCAPED_KEY_CACHE[key_str]
     if not escaped_key then
-      if escape_string then
-        -- LuaJIT: manual byte scanning
-        escaped_key = escape_string(key_str) or key_str
+      if not str_find(key_str, ESCAPE_PATTERN) then
+        escaped_key = key_str
       else
-        -- PUC Lua: str_find + str_gsub
+        escaped_key = str_gsub(key_str, ESCAPE_PATTERN, escapes)
+      end
+      ESCAPED_KEY_CACHE[key_str] = escaped_key
+    end
+  else
+    escaped_key = escape_string(key_str) or key_str
+  end
+  buf[buf_len + 2] = escaped_key
+  buf[buf_len + 3] = '":'
+  local new_buf_len, err = encode_value(v, buf, buf_len + 3)
+  if err then return new_buf_len, err end
+  buf_len = new_buf_len
+
+  k, v = next(val, k)
+  while k ~= nil do
+    buf[buf_len + 1] = ","
+    key_str = (type(k) == "string") and k or tostring(k)
+    buf[buf_len + 2] = '"'
+    if not _G.jit then
+      escaped_key = ESCAPED_KEY_CACHE[key_str]
+      if not escaped_key then
         if not str_find(key_str, ESCAPE_PATTERN) then
           escaped_key = key_str
         else
           escaped_key = str_gsub(key_str, ESCAPE_PATTERN, escapes)
         end
+        ESCAPED_KEY_CACHE[key_str] = escaped_key
       end
-      ESCAPED_KEY_CACHE[key_str] = escaped_key
+    else
+      escaped_key = escape_string(key_str) or key_str
     end
-
-    buf[buf_len + 2] = escaped_key
-    buf[buf_len + 3] = '":'
-    buf_len = buf_len + 3
-
-    local new_buf_len, err = encode_value(v, buf, buf_len)
+    buf[buf_len + 3] = escaped_key
+    buf[buf_len + 4] = '":'
+    new_buf_len, err = encode_value(v, buf, buf_len + 4)
     if err then return new_buf_len, err end
-    buf_len = new_buf_len --[[@as integer]]
-
+    buf_len = new_buf_len
     k, v = next(val, k)
   end
   buf_len = buf_len + 1
@@ -1049,42 +1062,27 @@ local function parse_number(str, pos, len)
 end
 
 
----@param str string
----@param pos integer
----@param depth integer
----@param len integer
----@return any val_or_err, integer|nil pos
-local function parse_array(str, pos, depth, len)
-  local arr = tab_new(8, 0)
-  local n = 0
-  pos = pos + 1 -- skip [
+local parse_array, parse_object
 
-  local b
-  pos, b = skip_whitespace(str, pos)
-  while b ~= BYTE_RBRACKET do
-    local val, new_pos = decode_value(str, pos, depth + 1, len, b)
-    if not new_pos then return val, nil end
-    pos = new_pos
-    n = n + 1
-    arr[n] = val
+if _G.jit then
+  parse_array = function(str, pos, depth, len)
+    local arr = tab_new(8, 0)
+    local n = 0
+    pos = pos + 1 -- skip [
 
-    -- skip whitespace or peek comma/bracket
-    b = str_byte(str, pos)
-    if b == BYTE_COMMA then
-      local comma_pos = pos
-      pos = pos + 1
-      pos, b = skip_whitespace(str, pos)
-      if b == BYTE_RBRACKET then
-        return "Trailing comma in array at " .. comma_pos, nil
-      end
-    elseif b == BYTE_RBRACKET then
-      -- proceed to end of while loop
-    else
+    local b, new_pos
+    pos, b = skip_whitespace(str, pos)
+    while b ~= BYTE_RBRACKET do
+      local val, npos = decode_value(str, pos, depth + 1, len, b)
+      if not npos then return val, nil end
+      pos = npos
+      n = n + 1
+      arr[n] = val
+
       pos, b = skip_whitespace(str, pos)
       if b == BYTE_COMMA then
         local comma_pos = pos
         pos = pos + 1
-        -- Check for trailing comma
         pos, b = skip_whitespace(str, pos)
         if b == BYTE_RBRACKET then
           return "Trailing comma in array at " .. comma_pos, nil
@@ -1093,64 +1091,35 @@ local function parse_array(str, pos, depth, len)
         return "Expected ] or , at " .. pos, nil
       end
     end
+    return setmetatable(arr, array_mt), pos + 1
   end
-  return setmetatable(arr, array_mt), pos + 1
-end
 
----@param str string
----@param pos integer
----@param depth integer
----@param len integer
----@return any val_or_err, integer|nil pos
-local function parse_object(str, pos, depth, len)
-  local obj = tab_new(0, 8)
-  pos = pos + 1 -- skip {
+  parse_object = function(str, pos, depth, len)
+    local obj = tab_new(0, 8)
+    pos = pos + 1 -- skip {
 
-  local b
-  pos, b = skip_whitespace(str, pos)
-  while b ~= BYTE_RBRACE do
-    -- Parse Key
-    if b ~= BYTE_QUOTE then
-      return "Expected string key for object at " .. (pos or "?"), nil
-    end
-    local key, new_pos = parse_string(str, pos, len)
-    if not new_pos or not key then return key, nil end
-    pos = new_pos
+    local b, new_pos
+    pos, b = skip_whitespace(str, pos)
+    while b ~= BYTE_RBRACE do
+      if b ~= BYTE_QUOTE then
+        return "Expected string key for object at " .. (pos or "?"), nil
+      end
+      local key, npos = parse_string(str, pos, len)
+      if not npos or not key then return key, nil end
+      pos = npos
 
-    -- Colon
-    -- skip whitespace / peek colon
-    b = str_byte(str, pos)
-    if b == BYTE_COLON then
-      pos = pos + 1
-    else
       pos, b = skip_whitespace(str, pos)
       if b ~= BYTE_COLON then
         return "Expected : after key at " .. pos, nil
       end
       pos = pos + 1
-    end
 
-    -- Value
-    -- skip whitespace / peek value
-    pos, b = skip_whitespace(str, pos)
-    local val, val_pos = decode_value(str, pos, depth + 1, len, b)
-    if not val_pos then return val, nil end
-    pos = val_pos
-    obj[key] = val
-
-    -- Comma or End
-    -- skip whitespace / peek comma/brace
-    b = str_byte(str, pos)
-    if b == BYTE_COMMA then
-      local comma_pos = pos
-      pos = pos + 1
       pos, b = skip_whitespace(str, pos)
-      if b == BYTE_RBRACE then
-        return "Trailing comma in object at " .. comma_pos, nil
-      end
-    elseif b == BYTE_RBRACE then
-      -- proceed
-    else
+      local val, val_pos = decode_value(str, pos, depth + 1, len, b)
+      if not val_pos then return val, nil end
+      pos = val_pos
+      obj[key] = val
+
       pos, b = skip_whitespace(str, pos)
       if b == BYTE_COMMA then
         local comma_pos = pos
@@ -1163,8 +1132,116 @@ local function parse_object(str, pos, depth, len)
         return "Expected } or , at " .. pos, nil
       end
     end
+    return obj, pos + 1
   end
-  return obj, pos + 1
+else
+  parse_array = function(str, pos, depth, len)
+    local arr = tab_new(8, 0)
+    local n = 0
+    pos = pos + 1 -- skip [
+
+    local b
+    pos, b = skip_whitespace(str, pos)
+    while b ~= BYTE_RBRACKET do
+      local val, new_pos = decode_value(str, pos, depth + 1, len, b)
+      if not new_pos then return val, nil end
+      pos = new_pos
+      n = n + 1
+      arr[n] = val
+
+      -- skip whitespace or peek comma/bracket
+      b = str_byte(str, pos)
+      if b == BYTE_COMMA then
+        local comma_pos = pos
+        pos = pos + 1
+        pos, b = skip_whitespace(str, pos)
+        if b == BYTE_RBRACKET then
+          return "Trailing comma in array at " .. comma_pos, nil
+        end
+      elseif b == BYTE_RBRACKET then
+        -- proceed to end of while loop
+      else
+        pos, b = skip_whitespace(str, pos)
+        if b == BYTE_COMMA then
+          local comma_pos = pos
+          pos = pos + 1
+          -- Check for trailing comma
+          pos, b = skip_whitespace(str, pos)
+          if b == BYTE_RBRACKET then
+            return "Trailing comma in array at " .. comma_pos, nil
+          end
+        elseif b ~= BYTE_RBRACKET then
+          return "Expected ] or , at " .. pos, nil
+        end
+      end
+    end
+    return setmetatable(arr, array_mt), pos + 1
+  end
+
+  parse_object = function(str, pos, depth, len)
+    local obj = tab_new(0, 8)
+    pos = pos + 1 -- skip {
+
+    local b
+    pos, b = skip_whitespace(str, pos)
+    while b ~= BYTE_RBRACE do
+      -- Parse Key
+      if b ~= BYTE_QUOTE then
+        return "Expected string key for object at " .. (pos or "?"), nil
+      end
+      local key, new_pos = parse_string(str, pos, len)
+      if not new_pos or not key then return key, nil end
+      pos = new_pos
+
+      -- Colon
+      -- skip whitespace / peek colon
+      b = str_byte(str, pos)
+      if b == BYTE_COLON then
+        pos = pos + 1
+      else
+        pos, b = skip_whitespace(str, pos)
+        if b ~= BYTE_COLON then
+          return "Expected : after key at " .. pos, nil
+        end
+        pos = pos + 1
+      end
+
+      -- Value
+      -- skip whitespace / peek value
+      pos, b = skip_whitespace(str, pos)
+      local val, val_pos = decode_value(str, pos, depth + 1, len, b)
+      if not val_pos then return val, nil end
+      pos = val_pos
+      obj[key] = val
+
+      -- Comma or End
+      -- skip whitespace / peek comma/brace
+      b = str_byte(str, pos)
+      if b == BYTE_COMMA then
+        local comma_pos = pos
+        pos = pos + 1
+        pos, b = skip_whitespace(str, pos)
+        if b == BYTE_RBRACE then
+          return "Trailing comma in object at " .. comma_pos, nil
+        end
+      elseif b == BYTE_RBRACE then
+        -- proceed
+      else
+        pos, b = skip_whitespace(str, pos)
+        if b == BYTE_COMMA then
+          local comma_pos = pos
+          pos = pos + 1
+          pos, b = skip_whitespace(str, pos)
+          if b == BYTE_RBRACE then
+            return "Trailing comma in object at " .. comma_pos, nil
+          end
+        elseif b ~= BYTE_RBRACE then
+          return "Expected } or , at " .. pos, nil
+        end
+      end
+    end
+    return obj, pos + 1
+  end
 end
 
 ---@param str string
@@ -1178,24 +1255,7 @@ decode_value = function(str, pos, depth, len, b)
   b = b or str_byte(str, pos)
   if not b then return "Unexpected EOF", nil end
 
-  if b >= BYTE_1 and b <= BYTE_9 then -- 1-9 (positive integer fast path)
-    local num = b - BYTE_0
-    local end_pos = pos + 1
-    while end_pos <= len do
-      local b2 = str_byte(str, end_pos)
-      if b2 and b2 >= BYTE_0 and b2 <= BYTE_9 then
-        num = num * 10 + (b2 - BYTE_0)
-        end_pos = end_pos + 1
-      elseif b2 == BYTE_DOT or b2 == BYTE_E or b2 == BYTE_UPPER_E then
-        return parse_number(str, pos, len)
-      else
-        return num, end_pos
-      end
-    end
-    return num, end_pos
-  end
-
-  if b == BYTE_0 or b == BYTE_MINUS then
+  if (b >= BYTE_0 and b <= BYTE_9) or b == BYTE_MINUS then
     return parse_number(str, pos, len)
   end
 
