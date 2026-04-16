@@ -94,6 +94,12 @@ Revert one change at a time, run `./autoresearch.sh` at least 3 times, compare t
 - **Inline string key fast path in parse_object**: Code complexity hurt JIT (Run 30).
 - **Add tight inner loop for ASCII characters in parse_string slow path**: Regression (Run 31).
 - **Move number check before string check in encode_value**: Massive regression (Run 32).
+- **Single-pass Integer Number Parsing**: Regressed LuaJIT by 1.4% (Run 8).
+- **Nil-fill elimination in shared buffers**: Regressed LuaJIT by 3.4% (Run 8).
+- **Small String Interning Cache (Keys)**: Branching overhead > savings on LuaJIT; regressed PUC Lua by 2.8% (Run 8/9).
+- **Fused Quote Writes in Encoder**: Extra string allocation/concatenation overhead was ~17% slower (Run 9).
+- **Inlined skip_whitespace**: Trace complexity hurt LuaJIT performance by ~4% (Run 9).
+- **Remove top-level utf8.len scan (JIT)**: No measurable win; environment noise masked any potential gain (Run 9).
 </details>
 
 ## Optimization Ideas
@@ -138,6 +144,8 @@ Revert one change at a time, run `./autoresearch.sh` at least 3 times, compare t
 
 9. **`tostring` bypass for common integer ranges in encode**
    The `SMALL_INTS` table covers 0-99 but `tostring()` is still called for 100-9999 (very common in real data). Extending to 0-999 was tried (Run 7, archived) and failed due to "table too large, lookup cost > savings." But a 1000-entry flat array is only 8KB — smaller than L1 cache. The failure may have been noise or an implementation issue (e.g., using a hash table instead of an array-part table). Worth re-trying with explicit integer keys `[100] = "100", ...` to ensure LuaJIT uses the array part.
+10. **Small String Interning Cache for Object Keys**
+    (Tried in Run 8/9 and discarded. The overhead of checking the cache via byte-peeking or hash lookup was consistently higher than Lua's internal interning speed for the common 1-4 character keys.)
 
 ### Tier 3 — Speculative / minor
 
