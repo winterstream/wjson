@@ -1,10 +1,10 @@
 package = "wjson"
-version = "0.1-1"
+version = "0.9"
 source = {
    url = "git+https://github.com/wynand/wjson.git"
 }
 description = {
-   summary = "A fast and small JSON library for Lua and LuaJIT",
+   summary = "A fast and conformant JSON library for Lua",
    detailed = [[
       wjson is a minimalist JSON encoder/decoder for Lua. 
       It supports Lua 5.2+, LuaJIT, and provides a simple API for conversion.

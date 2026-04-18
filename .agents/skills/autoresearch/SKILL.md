@@ -18,6 +18,7 @@ the loop.
 ## Invocation
 
 ### Standard loop
+
 ```
 /autoresearch
 Goal:   <what to improve — be specific>
@@ -28,10 +29,12 @@ Guard:  <shell command that must always pass — optional but strongly recommend
 ```
 
 `Verify` and `Guard` serve completely different purposes:
+
 - **Verify** = "Did the metric improve?" — measures progress toward the goal
 - **Guard** = "Did anything else break?" — protects invariants unrelated to the goal
 
 Example — improving test coverage while ensuring types never break:
+
 ```
 Verify: npm test -- --coverage | grep "All files"
 Guard:  npx tsc --noEmit
@@ -72,10 +75,12 @@ for that workflow.
    the user — the codebase is already broken before the loop starts. Fix the
    Guard failure manually before proceeding. Guard must be green at baseline.
 5. Initialise `autoresearch-results.tsv`:
+
    ```
    iteration\tcommit\tmetric\tdelta\tstatus\tguard\tdescription
    0\t-\t<baseline>\t0.0\tbaseline\tpass\tinitial measurement
    ```
+
 6. Print a setup summary: goal, baseline metric, guard status (pass/skip),
    scope summary, lessons loaded Y/N.
 7. Start the loop immediately. Do not wait for confirmation.
@@ -87,6 +92,7 @@ for that workflow.
 ### Phase 1 — Review
 
 Read:
+
 - Current state of all Scope files
 - `git log --oneline -20` (what has been tried)
 - `autoresearch-results.tsv` (what worked, what failed, patterns)
@@ -98,6 +104,7 @@ what has not been tried yet?
 ### Phase 2 — Ideate
 
 Pick ONE hypothesis. It must be:
+
 - Specific and testable in a single iteration
 - Meaningfully different from the last 3 attempts
 - Informed by both the results log and the lessons file
@@ -127,10 +134,12 @@ regardless of what verification reveals. Never skip this step.
 **Step A — Run Verify.** Extract the numeric metric value.
 
 If Verify crashed (exit non-zero, no number output):
+
 - Attempt to fix the crash (max 3 tries)
 - If unfixed: `git revert HEAD --no-edit`, log as "crash", go to Phase 8
 
 If Verify regressed or is unchanged:
+
 - `git revert HEAD --no-edit`, log as "discard", go to Phase 8
 - Do NOT run Guard — a regressed change is already dead
 
@@ -153,6 +162,7 @@ The full dual-gate decision table:
 | 💥 crashed | — | **FIX** (max 3 attempts), then revert if unfixed. | `crash` |
 
 **Rework protocol** (when Verify passes but Guard fails):
+
 1. Read the Guard failure output carefully
 2. Make the minimal additional change to satisfy Guard without hurting Verify
 3. Amend the commit: `git add -A && git commit --amend --no-edit`
@@ -271,14 +281,17 @@ You will wake up to `autoresearch-results.tsv` and `autoresearch-lessons.md`.
 ## Reference files
 
 **Core loop**
+
 - `references/loop-protocol.md` — detailed phase-by-phase protocol
 - `references/results-logging.md` — TSV format, summary templates, examples
 - `references/lessons-system.md` — cross-run memory and compounding
 
 **Gemini-native**
+
 - `references/google-search-patterns.md` — Google Search grounding patterns
 
 **Subcommand workflows**
+
 - `references/plan-workflow.md` — `/autoresearch:plan` — auto-detect and configure
 - `references/ship-workflow.md` — `/autoresearch:ship` — pre-flight checklist
 - `references/debug-workflow.md` — `/autoresearch:debug` — root cause and fix

@@ -6,14 +6,13 @@ A reasonably fast and very correct JSON library for Lua.
 
 `wjson` is a JSON library for Lua, designed with both speed and correctness in mind. It is written in pure Lua and works on a variety of Lua versions, including LuaJIT.
 
-The library uses several optimization techniques, such as localizing functions, caching byte values, and a pointer-based scanner for decoding, to minimize string allocations and improve performance. It also includes comprehensive UTF-8 validation to ensure correct handling of Unicode characters.
+The library uses several optimization techniques, such as localizing functions, caching byte values, and a index-based scanner for decoding, to minimize string allocations and improve performance. It also includes comprehensive UTF-8 validation to ensure correct handling of Unicode characters.
 
 ## Features
 
 - **Pure Lua:** No external dependencies, making it easy to integrate.
 - **Correctness:** Includes UTF-8 validation and passes the JSONTestSuite.
 - **Simple API:** A straightforward `encode` and `decode` API.
-- **Array and Object Support:** Differentiates between Lua sequences (arrays) and tables (objects).
 
 ## Installation
 
@@ -111,4 +110,12 @@ To run the tests, you will need `busted` or `nix`. Then, run the test script:
 
 ## LLM Disclosure
 
-This library was generated with the assistance of large language models. However, the author has spent considerable time reviewing the code. Furthermore, the author added the JSONTestSuite test cases to verify correctness and steered the LLM to generate various unit tests to verify correctness (which the author also reviewed).
+I used Gemini & Claude extensively in the development of this library. However, at all
+times, I was in control of the development process. I curated test data and the test
+suite. I steered the LLMs to use optimizations that I knew would work and later
+introduced benchmarking code with synthetic and real-world data. Eventually, I added
+an autoresearch script to find more optimizations and then benchmarked those as well.
+
+Crucially, I have reviewed all of the code. I grant that the code is far from beautiful
+but this is due mostly to my desire to eke out as much performance as possible from
+both LuaJIT and PUC Lua.

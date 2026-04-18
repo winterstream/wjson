@@ -23,11 +23,15 @@ wjson is a pure lua json library.
 
 # LLM Disclosure
 
-This library was generated with the assistance of large language models.
-However, the author has spent considerable time reviewing the code. Furthermore,
-the author added the JSONTestSuite test cases to verify correctness and steered
-the LLM to generate various unit tests to verify correctness (which the author
-also reviewed).
+I used Gemini & Claude extensively in the development of this library. However, at all
+times, I was in control of the development process. I curated test data and the test
+suite. I steered the LLMs to use optimizations that I knew would work and later
+introduced benchmarking code with synthetic and real-world data. Eventually, I added
+an autoresearch script to find more optimizations and then benchmarked those as well.
+
+Crucially, I have reviewed all of the code. I grant that the code is far from beautiful
+but this is due mostly to my desire to eke out as much performance as possible from
+both LuaJIT and PUC Lua.
 
 # License
 
@@ -74,6 +78,8 @@ local getmetatable               = getmetatable
 local next                       = next
 local math_huge                  = math.huge
 
+local JIT                        = _G['jit']
+
 local BYTE_LBRACKET              = str_byte("[")
 local BYTE_RBRACKET              = str_byte("]")
 local BYTE_LBRACE                = str_byte("{")
@@ -87,7 +93,6 @@ local BYTE_DOT                   = str_byte(".")
 local BYTE_MINUS                 = str_byte("-")
 local BYTE_PLUS                  = str_byte("+")
 local BYTE_0                     = str_byte("0")
-local BYTE_1                     = str_byte("1")
 local BYTE_9                     = str_byte("9")
 local BYTE_A                     = str_byte("a")
 local BYTE_B                     = str_byte("b")
@@ -106,8 +111,6 @@ local BYTE_SPACE                 = str_byte(" ")
 local BYTE_LF                    = str_byte("\n")
 local BYTE_CR                    = str_byte("\r")
 local BYTE_TAB                   = str_byte("\t")
-local BYTE_BS                    = str_byte("\b")
-local BYTE_FF                    = str_byte("\f")
 
 local UTF8_1BYTE_LIMIT           = 0x80
 local UTF8_2BYTE_LIMIT           = 0x800
@@ -136,117 +139,19 @@ local null                       = setmetatable({}, {
   __tojson = function() return "null" end,
 })
 
-local SMALL_INTS                 = {
-  [0] = "0",
-  [1] = "1",
-  [2] = "2",
-  [3] = "3",
-  [4] = "4",
-  [5] = "5",
-  [6] = "6",
-  [7] = "7",
-  [8] = "8",
-  [9] = "9",
-  [10] = "10",
-  [11] = "11",
-  [12] = "12",
-  [13] = "13",
-  [14] = "14",
-  [15] = "15",
-  [16] = "16",
-  [17] = "17",
-  [18] = "18",
-  [19] = "19",
-  [20] = "20",
-  [21] = "21",
-  [22] = "22",
-  [23] = "23",
-  [24] = "24",
-  [25] = "25",
-  [26] = "26",
-  [27] = "27",
-  [28] = "28",
-  [29] = "29",
-  [30] = "30",
-  [31] = "31",
-  [32] = "32",
-  [33] = "33",
-  [34] = "34",
-  [35] = "35",
-  [36] = "36",
-  [37] = "37",
-  [38] = "38",
-  [39] = "39",
-  [40] = "40",
-  [41] = "41",
-  [42] = "42",
-  [43] = "43",
-  [44] = "44",
-  [45] = "45",
-  [46] = "46",
-  [47] = "47",
-  [48] = "48",
-  [49] = "49",
-  [50] = "50",
-  [51] = "51",
-  [52] = "52",
-  [53] = "53",
-  [54] = "54",
-  [55] = "55",
-  [56] = "56",
-  [57] = "57",
-  [58] = "58",
-  [59] = "59",
-  [60] = "60",
-  [61] = "61",
-  [62] = "62",
-  [63] = "63",
-  [64] = "64",
-  [65] = "65",
-  [66] = "66",
-  [67] = "67",
-  [68] = "68",
-  [69] = "69",
-  [70] = "70",
-  [71] = "71",
-  [72] = "72",
-  [73] = "73",
-  [74] = "74",
-  [75] = "75",
-  [76] = "76",
-  [77] = "77",
-  [78] = "78",
-  [79] = "79",
-  [80] = "80",
-  [81] = "81",
-  [82] = "82",
-  [83] = "83",
-  [84] = "84",
-  [85] = "85",
-  [86] = "86",
-  [87] = "87",
-  [88] = "88",
-  [89] = "89",
-  [90] = "90",
-  [91] = "91",
-  [92] = "92",
-  [93] = "93",
-  [94] = "94",
-  [95] = "95",
-  [96] = "96",
-  [97] = "97",
-  [98] = "98",
-  [99] = "99",
-}
+local SMALL_INTS                 = {}
+for i = 0, 999 do
+  SMALL_INTS[i] = tostring(i)
+end
 
-local array_mt                   = {}
+local array_mt        = {}
 
-local ok, tab_new_req            = pcall(require, "table.new")
+local ok, tab_new_req = pcall(require, "table.new")
 ---@type fun(narr: integer, nrec: integer): table
-local tab_new                    = ok and tab_new_req or function() return {} end
+local tab_new         = ok and tab_new_req or function() return {} end
 
 -- Bitwise compatibility check
-local bit                        = _G.bit32
+local bit             = _G['bit32']
 if not bit then
   pcall(function() bit = require("bit") end)
 end
@@ -273,10 +178,12 @@ else
   end
 end
 
+---@type (fun(str: string, pos?: integer): integer, integer)?
 local utf8_len = (type(_G.utf8) == "table" and type(_G.utf8.len) == "function") and _G.utf8.len or nil
 
+---@type fun(str: string, pos: integer): integer, integer?
 local skip_whitespace
-if _G.jit then
+if JIT then
   skip_whitespace = function(str, pos)
     local b = str_byte(str, pos)
     while b == BYTE_SPACE or b == BYTE_LF or b == BYTE_CR or b == BYTE_TAB do
@@ -295,63 +202,31 @@ else
   end
 end
 
-local escapes = {}
+---@type table<string, string>
+local ESCAPES = {}
 for i = 0, 255 do
   local c = str_char(i)
   if i < BYTE_SPACE then
-    if c == "\b" then
-      escapes[c] = "\\b"
-    elseif c == "\f" then
-      escapes[c] = "\\f"
-    elseif c == "\n" then
-      escapes[c] = "\\n"
-    elseif c == "\r" then
-      escapes[c] = "\\r"
-    elseif c == "\t" then
-      escapes[c] = "\\t"
-    else
-      escapes[c] = str_format("\\u%04x", i)
-    end
-  elseif c == '"' then
-    escapes[c] = '\\"'
-  elseif c == "\\" then
-    escapes[c] = "\\\\"
+    ESCAPES[c] = str_format("\\u%04x", i)
   else
-    escapes[c] = c
+    ESCAPES[c] = c
   end
 end
+
+ESCAPES["\b"] = "\\b"
+ESCAPES["\f"] = "\\f"
+ESCAPES["\n"] = "\\n"
+ESCAPES["\r"] = "\\r"
+ESCAPES['"'] = '\\"'
+ESCAPES["\\"] = '\\\\'
 
 local shared_encode_parts = tab_new(32, 0)
 
 -- LuaJIT-optimized escape: byte-indexed table + manual scanning
 -- (str_gsub is C-optimized in PUC Lua and beats manual scanning there)
+---@type (fun(str: string): string)?
 local escape_string
-if _G.jit then
-  local ESCAPE_STRINGS = {}
-  for i = 0, 255 do
-    if i < BYTE_SPACE then
-      if i == BYTE_BS then
-        ESCAPE_STRINGS[i] = "\\b"
-      elseif i == BYTE_FF then
-        ESCAPE_STRINGS[i] = "\\f"
-      elseif i == BYTE_LF then
-        ESCAPE_STRINGS[i] = "\\n"
-      elseif i == BYTE_CR then
-        ESCAPE_STRINGS[i] = "\\r"
-      elseif i == BYTE_TAB then
-        ESCAPE_STRINGS[i] = "\\t"
-      else
-        ESCAPE_STRINGS[i] = str_format("\\u%04x", i)
-      end
-    elseif i == BYTE_QUOTE then
-      ESCAPE_STRINGS[i] = '\\"'
-    elseif i == BYTE_BACKSLASH then
-      ESCAPE_STRINGS[i] = "\\\\"
-    else
-      ESCAPE_STRINGS[i] = nil
-    end
-  end
-
+if JIT then
   escape_string = function(str)
     local len = #str
     for i = 1, len do
@@ -366,7 +241,7 @@ if _G.jit then
         local j = i
         while j <= len do
           local b2 = str_byte(str, j)
-          local esc = ESCAPE_STRINGS[b2]
+          local esc = ESCAPES[b2]
           if esc then
             if start < j then
               parts[pn] = str_sub(str, start, j - 1)
@@ -391,7 +266,7 @@ if _G.jit then
     return nil
   end
 else
-  escape_string = nil -- PUC Lua uses str_gsub directly
+  escape_string = function() error("escape_string called on PUC Lua") end -- PUC Lua uses str_gsub directly
 end
 
 local ESCAPE_PATTERN = '[%z\1-\31\\"]'
@@ -414,7 +289,6 @@ for i = BYTE_0, BYTE_9 do HEX_VALUES[i] = i - BYTE_0 end
 for i = BYTE_UPPER_A, BYTE_UPPER_F do HEX_VALUES[i] = i - BYTE_UPPER_A + 10 end
 for i = BYTE_A, BYTE_F do HEX_VALUES[i] = i - BYTE_A + 10 end
 
-
 local ESCAPED_KEY_CACHE = setmetatable({}, { __mode = "kv" })
 
 ---@param val any
@@ -431,7 +305,7 @@ local function encode_value(val, buf, buf_len)
   local t = type(val)
   if t == "string" then
     buf[buf_len + 1] = '"'
-    if escape_string then
+    if JIT then
       -- LuaJIT: manual byte scanning
       local escaped = escape_string(val)
       if escaped then
@@ -444,7 +318,7 @@ local function encode_value(val, buf, buf_len)
       if not str_find(val, ESCAPE_PATTERN) then
         buf[buf_len + 2] = val
       else
-        buf[buf_len + 2] = str_gsub(val, ESCAPE_PATTERN, escapes)
+        buf[buf_len + 2] = str_gsub(val, ESCAPE_PATTERN, ESCAPES)
       end
     end
     buf[buf_len + 3] = '"'
@@ -512,7 +386,6 @@ local function encode_value(val, buf, buf_len)
     return buf_len
   end
 
-
   -- Object encoding
   buf_len = buf_len + 1
   buf[buf_len] = "{"
@@ -520,15 +393,15 @@ local function encode_value(val, buf, buf_len)
   -- Handle first key
   local key_str = (type(k) == "string") and k or tostring(k)
   buf[buf_len + 1] = '"'
-  
+
   local escaped_key
-  if not _G.jit then
+  if not JIT then
     escaped_key = ESCAPED_KEY_CACHE[key_str]
     if not escaped_key then
       if not str_find(key_str, ESCAPE_PATTERN) then
         escaped_key = key_str
       else
-        escaped_key = str_gsub(key_str, ESCAPE_PATTERN, escapes)
+        escaped_key = str_gsub(key_str, ESCAPE_PATTERN, ESCAPES)
       end
       ESCAPED_KEY_CACHE[key_str] = escaped_key
     end
@@ -546,13 +419,13 @@ local function encode_value(val, buf, buf_len)
     buf[buf_len + 1] = ","
     key_str = (type(k) == "string") and k or tostring(k)
     buf[buf_len + 2] = '"'
-    if not _G.jit then
+    if not JIT then
       escaped_key = ESCAPED_KEY_CACHE[key_str]
       if not escaped_key then
         if not str_find(key_str, ESCAPE_PATTERN) then
           escaped_key = key_str
         else
-          escaped_key = str_gsub(key_str, ESCAPE_PATTERN, escapes)
+          escaped_key = str_gsub(key_str, ESCAPE_PATTERN, ESCAPES)
         end
         ESCAPED_KEY_CACHE[key_str] = escaped_key
       end
@@ -571,6 +444,7 @@ local function encode_value(val, buf, buf_len)
   return buf_len
 end
 
+---@type any[]
 local shared_encode_buf = tab_new(16384, 0)
 
 ---@param buffer any[]
@@ -606,9 +480,10 @@ local decode_value -- forward declaration
 ---@type fun(str: string, pos: integer, len: integer): string|nil, integer|nil
 local parse_string
 
+---@type string[]
 local shared_string_parts = tab_new(32, 0)
 
-if _G.jit then
+if JIT then
   parse_string = function(str, pos, len)
     -- pos matches the opening quote
     local i = pos + 1
@@ -643,45 +518,37 @@ if _G.jit then
         local result = tbl_concat(parts, "", 1, n)
         for j = 1, n do parts[j] = nil end
         return result, i + 1
-      end
-
-      if b ~= BYTE_BACKSLASH then
+      elseif b ~= BYTE_BACKSLASH then
         if b < BYTE_SPACE then -- control character
           for j = 1, n do parts[j] = nil end
           return "Unescaped control character at position " .. i, nil
-        end
-        -- UTF-8 validation
-        if b >= UTF8_1BYTE_LIMIT then
-          if b >= UTF8_2BYTE_MIN and b < UTF8_3BYTE_MARK then -- 2-byte sequence
-            local b2 = str_byte(str, i + 1)
-            if not b2 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK then
-              for j = 1, n do parts[j] = nil end
-              return "Invalid UTF-8 sequence at position " .. i, nil
-            end
-            i = i + 2
-          elseif b >= UTF8_3BYTE_MARK and b < UTF8_4BYTE_MARK then -- 3-byte sequence
-            local b2 = str_byte(str, i + 1)
-            local b3 = str_byte(str, i + 2)
-            if not b3 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK or b3 < UTF8_CONTINUATION_MARK or b3 >= UTF8_2BYTE_MARK then
-              for j = 1, n do parts[j] = nil end
-              return "Invalid UTF-8 sequence at position " .. i, nil
-            end
-            i = i + 3
-          elseif b >= UTF8_4BYTE_MARK and b <= UTF8_4BYTE_MAX then -- 4-byte sequence
-            local b2 = str_byte(str, i + 1)
-            local b3 = str_byte(str, i + 2)
-            local b4 = str_byte(str, i + 3)
-            if not b4 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK or b3 < UTF8_CONTINUATION_MARK or b3 >= UTF8_2BYTE_MARK or b4 < UTF8_CONTINUATION_MARK or b4 >= UTF8_2BYTE_MARK then
-              for j = 1, n do parts[j] = nil end
-              return "Invalid UTF-8 sequence at position " .. i, nil
-            end
-            i = i + 4
-          else
+          -- UTF-8 validation
+        elseif b < UTF8_1BYTE_LIMIT then
+          i = i + 1
+        elseif b >= UTF8_2BYTE_MIN and b < UTF8_3BYTE_MARK then -- 2-byte sequence
+          local b2 = str_byte(str, i + 1)
+          if not b2 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK then
             for j = 1, n do parts[j] = nil end
             return "Invalid UTF-8 sequence at position " .. i, nil
           end
+          i = i + 2
+        elseif b >= UTF8_3BYTE_MARK and b < UTF8_4BYTE_MARK then -- 3-byte sequence
+          local b2, b3 = str_byte(str, i + 1, i + 2)
+          if not b3 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK or b3 < UTF8_CONTINUATION_MARK or b3 >= UTF8_2BYTE_MARK then
+            for j = 1, n do parts[j] = nil end
+            return "Invalid UTF-8 sequence at position " .. i, nil
+          end
+          i = i + 3
+        elseif b >= UTF8_4BYTE_MARK and b <= UTF8_4BYTE_MAX then -- 4-byte sequence
+          local b2, b3, b4 = str_byte(str, i + 1, i + 3)
+          if not b4 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK or b3 < UTF8_CONTINUATION_MARK or b3 >= UTF8_2BYTE_MARK or b4 < UTF8_CONTINUATION_MARK or b4 >= UTF8_2BYTE_MARK then
+            for j = 1, n do parts[j] = nil end
+            return "Invalid UTF-8 sequence at position " .. i, nil
+          end
+          i = i + 4
         else
-          i = i + 1
+          for j = 1, n do parts[j] = nil end
+          return "Invalid UTF-8 sequence at position " .. i, nil
         end
         goto continue
       end
@@ -747,7 +614,7 @@ if _G.jit then
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
-        local b1, b2, b3, b4 = str_byte(str, i + 7, i + 10)
+        b1, b2, b3, b4 = str_byte(str, i + 7, i + 10)
         local l1 = HEX_VALUES[b1]
         local l2 = HEX_VALUES[b2]
         local l3 = HEX_VALUES[b3]
@@ -903,7 +770,7 @@ else
           return "Unpaired surrogate or invalid unicode sequence at " .. i, nil
         end
 
-        local b1, b2, b3, b4 = str_byte(str, i + 7, i + 10)
+        b1, b2, b3, b4 = str_byte(str, i + 7, i + 10)
         local l1 = HEX_VALUES[b1]
         local l2 = HEX_VALUES[b2]
         local l3 = HEX_VALUES[b3]
@@ -1062,9 +929,13 @@ local function parse_number(str, pos, len)
 end
 
 
-local parse_array, parse_object
+---@type fun(str: string, pos: number, depth: number, len: number): any?, number?
+local parse_array
 
-if _G.jit then
+---@type fun(str: string, pos: number, depth: number, len: number): any?, number?
+local parse_object
+
+if JIT then
   parse_array = function(str, pos, depth, len)
     local arr = tab_new(8, 0)
     local n = 0
@@ -1244,47 +1115,38 @@ else
   end
 end
 
----@param str string
----@param pos integer
----@param depth integer
----@param len integer
----@param b? integer
 decode_value = function(str, pos, depth, len, b)
   if depth > 20 then return "JSON recursion depth limit exceeded", nil end
 
   b = b or str_byte(str, pos)
-  if not b then return "Unexpected EOF", nil end
-
-  if (b >= BYTE_0 and b <= BYTE_9) or b == BYTE_MINUS then
+  if not b then
+    return "Unexpected EOF", nil
+  elseif (b >= BYTE_0 and b <= BYTE_9) or b == BYTE_MINUS then
     return parse_number(str, pos, len)
-  end
-
-  if b == BYTE_QUOTE then return parse_string(str, pos, len) end
-  if b == BYTE_LBRACKET then return parse_array(str, pos, depth, len) end
-  if b == BYTE_LBRACE then return parse_object(str, pos, depth, len) end
-
-  if b == BYTE_T then
+  elseif b == BYTE_QUOTE then
+    return parse_string(str, pos, len)
+  elseif b == BYTE_LBRACKET then
+    return parse_array(str, pos, depth, len)
+  elseif b == BYTE_LBRACE then
+    return parse_object(str, pos, depth, len)
+  elseif b == BYTE_T then
     local b2, b3, b4 = str_byte(str, pos + 1, pos + 3)
     if b2 == BYTE_R and b3 == BYTE_U and b4 == BYTE_E then -- true
       return true, pos + 4
     end
-  end
-
-  if b == BYTE_F then
+  elseif b == BYTE_F then
     local b2, b3, b4, b5 = str_byte(str, pos + 1, pos + 4)
     if b2 == BYTE_A and b3 == BYTE_L and b4 == BYTE_S and b5 == BYTE_E then -- false
       return false, pos + 5
     end
-  end
-
-  if b == BYTE_N then
+  elseif b == BYTE_N then
     local b2, b3, b4 = str_byte(str, pos + 1, pos + 3)
     if b2 == BYTE_U and b3 == BYTE_L and b4 == BYTE_L then -- null
       return null, pos + 4
     end
+  else
+    return "Unexpected character at " .. pos .. ": " .. str_char(b or 0), nil
   end
-
-  return "Unexpected character at " .. pos .. ": " .. str_char(b or 0), nil
 end
 
 ---@param str string
@@ -1298,7 +1160,6 @@ local function decode(str, max_size)
       return nil, "Invalid UTF-8 sequence at position " .. (pos or "?")
     end
   end
-
 
   -- Size Check
   local len = #str
