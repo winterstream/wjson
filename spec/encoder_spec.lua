@@ -111,4 +111,30 @@ describe("JSON Encoder", function()
       assert.is_equal(1, decoded.b.x)
     end)
   end)
+
+  describe("__tojson metamethod", function()
+    it("uses __tojson if present and returns a string", function()
+      local t = setmetatable({ a = 1 }, {
+        __tojson = function(val) return '{"custom":true}' end
+      })
+      local encoded = wjson.encode({ item = t })
+      assert.is_equal('{"item":{"custom":true}}', encoded)
+    end)
+
+    it("errors if __tojson returns nil/false", function()
+      local t = setmetatable({}, {
+        __tojson = function() return false, "expected error" end
+      })
+      local res, err = wjson.encode({ item = t })
+      assert.is_nil(res)
+      assert.is_equal("expected error", err)
+    end)
+
+    it("does not trigger cycle error when simply utilizing __tojson correctly", function()
+      local t = setmetatable({}, {
+        __tojson = function() return '"hello"' end
+      })
+      assert.is_equal('"hello"', wjson.encode(t))
+    end)
+  end)
 end)

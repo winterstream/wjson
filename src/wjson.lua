@@ -357,13 +357,34 @@ local function encode_value(val, buf, buf_len, visited)
     return buf_len, "cannot serialize type: " .. t
   end
 
+  local mt = getmetatable(val)
+  if mt and mt ~= array_mt then
+    local tojson = mt.__tojson
+    if tojson then
+      if visited[val] then
+        return buf_len, "cannot serialize cyclic data structure"
+      end
+      visited[val] = true
+      local ret, err = tojson(val)
+      visited[val] = nil
+      if type(ret) == "string" then
+        buf_len = buf_len + 1
+        buf[buf_len] = ret
+        return buf_len
+      end
+      if not ret then
+        return buf_len, err or "custom encoder failed"
+      end
+    end
+  end
+
   if visited[val] then
     return buf_len, "cannot serialize cyclic data structure"
   end
   visited[val] = true
 
   local len = #val
-  if getmetatable(val) == array_mt or len > 0 then
+  if mt == array_mt or len > 0 then
     -- Array encoding
     buf_len = buf_len + 1
     buf[buf_len] = "["
