@@ -294,8 +294,9 @@ local ESCAPED_KEY_CACHE = setmetatable({}, { __mode = "kv" })
 ---@param val any
 ---@param buf string[]
 ---@param buf_len integer
+---@param visited table<table, true>
 ---@return integer buf_len, string? error
-local function encode_value(val, buf, buf_len)
+local function encode_value(val, buf, buf_len, visited)
   if val == nil or val == null then
     buf_len = buf_len + 1
     buf[buf_len] = "null"
@@ -356,26 +357,32 @@ local function encode_value(val, buf, buf_len)
     return buf_len, "cannot serialize type: " .. t
   end
 
+  if visited[val] then
+    return buf_len, "cannot serialize cyclic data structure"
+  end
+  visited[val] = true
+
   local len = #val
   if getmetatable(val) == array_mt or len > 0 then
     -- Array encoding
     buf_len = buf_len + 1
     buf[buf_len] = "["
     if len > 0 then
-      local new_buf_len, err = encode_value(val[1], buf, buf_len)
+      local new_buf_len, err = encode_value(val[1], buf, buf_len, visited)
       if err then return new_buf_len, err end
       buf_len = new_buf_len --[[@as integer]]
 
       for i = 2, len do
         buf_len = buf_len + 1
         buf[buf_len] = ","
-        new_buf_len, err = encode_value(val[i], buf, buf_len)
+        new_buf_len, err = encode_value(val[i], buf, buf_len, visited)
         if err then return new_buf_len, err end
         buf_len = new_buf_len --[[@as integer]]
       end
     end
     buf_len = buf_len + 1
     buf[buf_len] = "]"
+    visited[val] = nil
     return buf_len
   end
 
@@ -410,7 +417,7 @@ local function encode_value(val, buf, buf_len)
   end
   buf[buf_len + 2] = escaped_key
   buf[buf_len + 3] = '":'
-  local new_buf_len, err = encode_value(v, buf, buf_len + 3)
+  local new_buf_len, err = encode_value(v, buf, buf_len + 3, visited)
   if err then return new_buf_len, err end
   buf_len = new_buf_len
 
@@ -434,13 +441,14 @@ local function encode_value(val, buf, buf_len)
     end
     buf[buf_len + 3] = escaped_key
     buf[buf_len + 4] = '":'
-    new_buf_len, err = encode_value(v, buf, buf_len + 4)
+    new_buf_len, err = encode_value(v, buf, buf_len + 4, visited)
     if err then return new_buf_len, err end
     buf_len = new_buf_len
     k, v = next(val, k)
   end
   buf_len = buf_len + 1
   buf[buf_len] = "}"
+  visited[val] = nil
   return buf_len
 end
 
@@ -466,7 +474,7 @@ end
 ---@return string?, string?
 local function encode(val, buffer)
   local buf = buffer or shared_encode_buf
-  local buf_len, err = encode_value(val, buf, 0)
+  local buf_len, err = encode_value(val, buf, 0, {})
   if err then
     clear_buffer(buf, buf_len)
     return nil, tostring(err)

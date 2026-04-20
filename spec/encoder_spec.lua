@@ -72,4 +72,43 @@ describe("JSON Encoder", function()
     assert.is_equal("true", wjson.encode(true, buffer))
     assert.is_nil(buffer[1])
   end)
+
+  describe("cycle detection", function()
+    it("detects a self-referencing table", function()
+      local t = { a = 1 }
+      t.self = t
+      local res, err = wjson.encode(t)
+      assert.is_nil(res)
+      assert.is_truthy(err:find("cyclic"))
+    end)
+
+    it("detects a self-referencing array", function()
+      local t = { 1, 2, 3 }
+      t[4] = t
+      local res, err = wjson.encode(t)
+      assert.is_nil(res)
+      assert.is_truthy(err:find("cyclic"))
+    end)
+
+    it("detects an indirect cycle", function()
+      local a = {}
+      local b = {}
+      a.child = b
+      b.parent = a
+      local res, err = wjson.encode(a)
+      assert.is_nil(res)
+      assert.is_truthy(err:find("cyclic"))
+    end)
+
+    it("allows a shared table in a DAG (no cycle)", function()
+      local shared = { x = 1 }
+      local data = { a = shared, b = shared }
+      local res, err = wjson.encode(data)
+      assert.is_not_nil(res)
+      assert.is_nil(err)
+      local decoded = wjson.decode(res)
+      assert.is_equal(1, decoded.a.x)
+      assert.is_equal(1, decoded.b.x)
+    end)
+  end)
 end)
