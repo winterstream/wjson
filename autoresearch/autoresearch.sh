@@ -4,7 +4,7 @@ set -euo pipefail
 # Run the benchmark and compute total encode+decode time for LuaJIT
 # Output structured METRIC lines for autoresearch
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 # Pre-check: ensure library loads
 if ! nix develop .#luajit -c env LUA_CPATH="" LUA_PATH="src/?.lua;bench/?.lua;;" luajit -e "require('wjson')" 2>/dev/null; then

@@ -2,9 +2,14 @@
 wjson is a pure lua json library.
 
 # API
-- `encode`: Serialize Lua values to JSON. A buffer can be provided to reduce
-  memory allocations (useful when calling encode multiple times).
-- `decode`: Parse JSON strings into Lua values.
+- `encode(val[, buffer])`: Serialize Lua values to JSON. A buffer can be provided
+  to reduce memory allocations (useful when calling encode multiple times).
+- `decode(str)`: Parse JSON strings into Lua values. Fails if the string contains
+  more than one JSON value.
+- `decode_next(str[, len[, pos]])`: Parse the next JSON value from a string.
+  Returns the value and the position after the value. By passing the returned
+  position as the `pos` argument to a subsequent call to `decode_next`, you can
+  parse multiple JSON values from a string.
 
 # Usage Notes
 - `null`: Use `wjson.null` to represent a JSON `null` (however, if you have a
@@ -1231,31 +1236,36 @@ decode_value = function(str, pos, depth, len, b)
 end
 
 ---@param str string
----@return any?, string?
-local function decode(str, max_size)
-  if not str or str == "" then return nil, "Empty JSON" end
+---@param pos? integer
+---@param len? integer
+---@return any?, integer?, string?
+local function decode_next(str, len, pos)
+  local b
+  len = len or #str
+  pos = pos or 1
 
-  -- Size Check
-  local len = #str
-  if max_size and len > max_size then
-    return nil, str_format("JSON size limit exceeded (%d bytes > %d bytes)", len, max_size)
-  end
-
-  local pos, b = skip_whitespace(str, 1)
-
-  local bb1, bb2, bb3 = str_byte(str, 1, 4)
-  if bb1 ~= BOM_BYTE_1 or bb2 ~= BOM_BYTE_2 or bb3 ~= BOM_BYTE_3 then
-    pos, b = skip_whitespace(str, 1)
+  local bb1, bb2, bb3 = str_byte(str, pos, pos + 3)
+  if pos > 1 or bb1 ~= BOM_BYTE_1 or bb2 ~= BOM_BYTE_2 or bb3 ~= BOM_BYTE_3 then
+    pos, b = skip_whitespace(str, pos)
   else
     pos, b = skip_whitespace(str, 4)
   end
 
-  if not b then return nil, "Empty or whitespace-only JSON" end
+  if not b then return nil, nil, "Empty or whitespace-only JSON" end
 
   local val, end_pos = decode_value(str, pos, 0, len, b)
-  if not end_pos then return nil, tostring(val) end
+  if not end_pos then return nil, nil, tostring(val) end
+  return val, end_pos, nil
+end
 
-  end_pos, b = skip_whitespace(str, end_pos)
+---@param str string
+---@return any?, string?
+local function decode(str)
+  local len = #str
+  local val, end_pos, err = decode_next(str, len, 1)
+  if not end_pos then return nil, err end
+
+  end_pos = skip_whitespace(str, end_pos)
   if end_pos <= len then
     return nil, "Trailing characters after JSON data at " .. end_pos
   end
@@ -1273,5 +1283,6 @@ return {
   drain_buffer = drain_buffer,
   encode = encode,
   decode = decode,
+  decode_next = decode_next,
   empty_array = empty_array,
 }
