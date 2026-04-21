@@ -129,6 +129,10 @@ local UNICODE_SURROGATE_HIGH_MAX = 0xDBFF
 local UNICODE_SURROGATE_LOW_MIN  = 0xDC00
 local UNICODE_SURROGATE_LOW_MAX  = 0xDFFF
 
+local BOM_BYTE_1                 = 0xEF
+local BOM_BYTE_2                 = 0xBB
+local BOM_BYTE_3                 = 0xBF
+
 local HEX_WEIGHT_NIBBLE_4        = 4096
 local HEX_WEIGHT_NIBBLE_3        = 256
 local HEX_WEIGHT_NIBBLE_2        = 16
@@ -178,9 +182,6 @@ else
   end
 end
 
----@type (fun(str: string, pos?: integer): integer, integer)?
-local utf8_len = (type(_G.utf8) == "table" and type(_G.utf8.len) == "function") and _G.utf8.len or nil
-
 ---@type fun(str: string, pos: integer): integer, integer?
 local skip_whitespace
 if JIT then
@@ -220,11 +221,19 @@ ESCAPES["\r"] = "\\r"
 ESCAPES['"'] = '\\"'
 ESCAPES["\\"] = '\\\\'
 
+---@type table<integer, string>
+local ESCAPES_BYTE = {}
+for i = 0, 255 do
+  local c = str_char(i)
+  ESCAPES_BYTE[i] = ESCAPES[c]
+end
+
+---@type string[]
 local shared_encode_parts = tab_new(32, 0)
 
 -- LuaJIT-optimized escape: byte-indexed table + manual scanning
 -- (str_gsub is C-optimized in PUC Lua and beats manual scanning there)
----@type (fun(str: string): string)?
+---@type (fun(str: string): string?)?
 local escape_string
 if JIT then
   escape_string = function(str)
@@ -241,7 +250,7 @@ if JIT then
         local j = i
         while j <= len do
           local b2 = str_byte(str, j)
-          local esc = ESCAPES[b2]
+          local esc = ESCAPES_BYTE[b2]
           if esc then
             if start < j then
               parts[pn] = str_sub(str, start, j - 1)
@@ -504,7 +513,7 @@ local function encode(val, buffer)
 end
 
 ---@type fun(str: string, pos: integer, depth: integer, len: integer, b?: integer): any, integer|nil
-local decode_value -- forward declaration
+local decode_value
 
 ---@type fun(str: string, pos: integer, len: integer): string|nil, integer|nil
 local parse_string
@@ -567,12 +576,32 @@ if JIT then
             for j = 1, n do parts[j] = nil end
             return "Invalid UTF-8 sequence at position " .. i, nil
           end
+          -- Overlong check for E0
+          if b == UTF8_3BYTE_MARK and b2 < 0xA0 then
+            for j = 1, n do parts[j] = nil end
+            return "Invalid UTF-8 sequence (overlong) at position " .. i, nil
+          end
+          -- Surrogate check for ED
+          if b == 0xED and b2 > 0x9F then
+            for j = 1, n do parts[j] = nil end
+            return "Invalid UTF-8 sequence (surrogate) at position " .. i, nil
+          end
           i = i + 3
         elseif b >= UTF8_4BYTE_MARK and b <= UTF8_4BYTE_MAX then -- 4-byte sequence
           local b2, b3, b4 = str_byte(str, i + 1, i + 3)
           if not b4 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK or b3 < UTF8_CONTINUATION_MARK or b3 >= UTF8_2BYTE_MARK or b4 < UTF8_CONTINUATION_MARK or b4 >= UTF8_2BYTE_MARK then
             for j = 1, n do parts[j] = nil end
             return "Invalid UTF-8 sequence at position " .. i, nil
+          end
+          -- Overlong check for F0
+          if b == UTF8_4BYTE_MARK and b2 < 0x90 then
+            for j = 1, n do parts[j] = nil end
+            return "Invalid UTF-8 sequence (overlong) at position " .. i, nil
+          end
+          -- Range check for F4
+          if b == UTF8_4BYTE_MAX and b2 > 0x8F then
+            for j = 1, n do parts[j] = nil end
+            return "Invalid UTF-8 sequence (out of range) at position " .. i, nil
           end
           i = i + 4
         else
@@ -686,7 +715,7 @@ if JIT then
     return "Unterminated string", nil
   end
 else
-  local STRING_PATTERN = utf8_len and '["\\\1-\31%z]' or '["\\\1-\31%z\128-\255]'
+  local STRING_PATTERN = '["\\\1-\31%z\128-\255]'
 
   parse_string = function(str, pos, len)
     -- PUC Lua: use pattern matching to find the first quote or special character
@@ -700,7 +729,7 @@ else
     end
 
     local i = special_pos
-    local parts = {}
+    local parts = shared_string_parts
     local n = 0
     if i > start then
       n = n + 1
@@ -733,9 +762,32 @@ else
             return "Invalid UTF-8 sequence at position " .. i, nil
           end
           local expected = (b >= UTF8_4BYTE_MARK and 3) or (b >= UTF8_3BYTE_MARK and 2) or 1
+          local b2 = str_byte(str, i + 1)
+          if not b2 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK then
+            return "Invalid UTF-8 sequence at position " .. i, nil
+          end
+
+          if b >= UTF8_4BYTE_MARK then
+            -- 4-byte Checks
+            if b == UTF8_4BYTE_MARK and b2 < 0x90 then
+              return "Invalid UTF-8 sequence (overlong) at position " .. i, nil
+            end
+            if b == UTF8_4BYTE_MAX and b2 > 0x8F then
+              return "Invalid UTF-8 sequence (out of range) at position " .. i, nil
+            end
+          elseif b >= UTF8_3BYTE_MARK then
+            -- 3-byte Checks
+            if b == UTF8_3BYTE_MARK and b2 < 0xA0 then
+              return "Invalid UTF-8 sequence (overlong) at position " .. i, nil
+            end
+            if b == 0xED and b2 > 0x9F then
+              return "Invalid UTF-8 sequence (surrogate) at position " .. i, nil
+            end
+          end
+
           for _ = 1, expected do
             i = i + 1
-            local b2 = str_byte(str, i)
+            b2 = str_byte(str, i)
             if not b2 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK then
               return "Invalid UTF-8 sequence at position " .. i, nil
             end
@@ -1183,13 +1235,6 @@ end
 local function decode(str, max_size)
   if not str or str == "" then return nil, "Empty JSON" end
 
-  if utf8_len then
-    local count, pos = utf8_len(str)
-    if not count then
-      return nil, "Invalid UTF-8 sequence at position " .. (pos or "?")
-    end
-  end
-
   -- Size Check
   local len = #str
   if max_size and len > max_size then
@@ -1197,6 +1242,14 @@ local function decode(str, max_size)
   end
 
   local pos, b = skip_whitespace(str, 1)
+
+  local bb1, bb2, bb3 = str_byte(str, 1, 4)
+  if bb1 ~= BOM_BYTE_1 or bb2 ~= BOM_BYTE_2 or bb3 ~= BOM_BYTE_3 then
+    pos, b = skip_whitespace(str, 1)
+  else
+    pos, b = skip_whitespace(str, 4)
+  end
+
   if not b then return nil, "Empty or whitespace-only JSON" end
 
   local val, end_pos = decode_value(str, pos, 0, len, b)
