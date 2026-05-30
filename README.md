@@ -1,18 +1,23 @@
 # wjson
 
-A reasonably fast and very correct JSON library for Lua.
+A fast, correct JSON library for Lua.
 
 ## About
 
-`wjson` is a JSON library for Lua, designed with both speed and correctness in mind. It is written in pure Lua and works on a variety of Lua versions, including LuaJIT.
+`wjson` is a pure Lua JSON library designed around two priorities: correctness
+first, and good performance without native dependencies. It works across
+multiple Lua versions, including LuaJIT.
 
-The library uses several optimization techniques, such as localizing functions, caching byte values, and a index-based scanner for decoding, to minimize string allocations and improve performance. It also includes comprehensive UTF-8 validation to ensure correct handling of Unicode characters.
+The implementation keeps a small set of measured optimizations in hot paths
+while preserving shared parsing and Unicode logic where possible. It also
+performs strict UTF-8 validation during decoding.
 
 ## Features
 
 - **Pure Lua:** No external dependencies, making it easy to integrate.
 - **Correctness:** Includes UTF-8 validation and passes the JSONTestSuite.
-- **Simple API:** A straightforward `encode` and `decode` API.
+- **Simple API:** A straightforward `encode`/`decode` API with `decode_next` for
+  streaming-style parsing.
 
 ## Installation
 
@@ -28,7 +33,9 @@ luarocks install wjson
 
 Encodes a Lua value into a JSON string.
 
-- Lua `nil`, `wjson.null`, `wjson.nan`, and `wjson.inf` are all encoded as `null`.
+- Lua `nil` and `wjson.null` are encoded as `null`.
+- Non-finite Lua numbers (`0/0`, `math.huge`, `-math.huge`) are also encoded as
+  `null`.
 - Lua strings, numbers, and booleans are encoded as their JSON equivalents.
 - Lua tables are encoded as either JSON arrays or objects.
 
@@ -55,7 +62,8 @@ print(json_string)
 Decodes a JSON string into a Lua value.
 
 - `null` is decoded into `wjson.null`.
-- JSON strings, numbers, booleans, arrays, and objects are decoded into their Lua equivalents.
+- JSON strings, numbers, booleans, arrays, and objects are decoded into their
+  Lua equivalents.
 
 **Example:**
 
@@ -72,13 +80,20 @@ print(data.features[1]) -- Output: fast
 
 ### `wjson.null`
 
-A sentinel value used to represent `null` in JSON. This is useful to differentiate between a `null` value and a key that is not present in a table (`nil`).
+A sentinel value used to represent `null` in JSON. This is useful to
+differentiate between a `null` value and a key that is not present in a table
+(`nil`).
 
 ### Arrays vs. Objects
 
-`wjson` automatically detects whether a Lua table should be encoded as a JSON array or a JSON object.
+`wjson` automatically detects whether a Lua table should be encoded as a JSON
+array or a JSON object.
 
-- **Array:** A table is considered an array if it is a sequence (keys are integers from 1 to `n`). You can also force a table to be treated as an array by setting its metatable to `wjson.array_mt`. `wjson.empty_array()` returns a new empty array.
+- **Array:** A table is considered an array if it is a sequence (keys are
+  integers from 1 to `n`). You can also force a table to be treated as an array
+  by setting its metatable to `wjson.array_mt`. `wjson.empty_array()` returns a
+  new empty array, and `wjson.array_mt` is exported for callers that need to tag
+  existing tables.
 - **Object:** Any other table is encoded as a JSON object.
 
 **Example:**
@@ -108,14 +123,9 @@ To run the tests, you will need `busted` or `nix`. Then, run the test script:
 ./run_tests.sh
 ```
 
-## LLM Disclosure
+## Notes
 
-I used Gemini & Claude extensively in the development of this library. However, at all
-times, I was in control of the development process. I curated test data and the test
-suite. I steered the LLMs to use optimizations that I knew would work and later
-introduced benchmarking code with synthetic and real-world data. Eventually, I added
-an autoresearch script to find more optimizations and then benchmarked those as well.
-
-Crucially, I have reviewed all of the code. I grant that the code is far from beautiful
-but this is due mostly to my desire to eke out as much performance as possible from
-both LuaJIT and PUC Lua.
+- Decoder input is validated as UTF-8.
+- Non-finite Lua numbers encode as `null` by policy.
+- Performance-sensitive changes should be verified with `bench/bench.lua` and
+  `./run_tests.sh`.
