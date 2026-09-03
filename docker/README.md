@@ -4,12 +4,14 @@ A self-contained benchmarking container that pits **wjson** against popular Lua
 JSON libraries:
 
 - **wjson** `[PURE LUA]`
-- **dkjson** `[PURE LUA]` (in pure-Lua scanner mode)
-- **lunajson** `[PURE LUA]`
-- **rxi/json.lua** `[PURE LUA]`
-- **dkjson (LPeg)** `[C EXT]` (using the native C LPeg parsing expression
-  grammar)
-- **lua-cjson** `[C EXT]` (OpenResty native C module)
+- [**dkjson**](https://github.com/LuaDist/dkjson) `[PURE LUA]` (in pure-Lua
+  scanner mode)
+- [**lunajson**](https://github.com/grafi-tt/lunajson) `[PURE LUA]`
+- [**rxi/json.lua**](https://github.com/rxi/json.lua) `[PURE LUA]`
+- [**dkjson (LPeg)**](https://github.com/LuaDist/dkjson) `[C EXT]` (using the
+  native C LPeg parsing expression grammar)
+- [**lua-cjson**](https://github.com/mpx/lua-cjson) `[C EXT]` (OpenResty native
+  C module)
 
 The arena runs synthetic benchmarks (shallow wide, deeply nested, unicode
 escapes, complex numbers) as well as real-world multi-megabyte datasets (GitHub
