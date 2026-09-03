@@ -33,6 +33,8 @@ docker run --rm -it ghcr.io/winterstream/wjson --quick
 ## Available Flags
 
 - `--quick` or `-q`: Run fewer iterations for rapid evaluation.
+- `--lua55`: Run the arena under PUC Lua 5.5 instead of the default LuaJIT.
+- `--lua54`: Run the arena under PUC Lua 5.4 instead of the default LuaJIT.
 - `--datasets-only`: Run only real-world dataset benchmarks.
 - `--synthetic-only`: Run only synthetic benchmarks.
 - `--no-color`: Disable ANSI color codes (useful for logging to files).

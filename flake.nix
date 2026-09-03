@@ -19,6 +19,7 @@
           lua52 = pkgs.mkShell { buildInputs = [ (makeLuaEnv pkgs.lua5_2) ]; };
           lua53 = pkgs.mkShell { buildInputs = [ (makeLuaEnv pkgs.lua5_3) ]; };
           lua54 = pkgs.mkShell { buildInputs = [ (makeLuaEnv pkgs.lua5_4) ]; };
+          lua55 = pkgs.mkShell { buildInputs = [ (makeLuaEnv pkgs.lua5_5) ]; };
           default = pkgs.mkShell { buildInputs = [ (makeLuaEnv pkgs.lua5_4) ]; };
         };
       }

@@ -6,12 +6,17 @@ LABEL org.opencontainers.image.title="wjson Benchmark Arena" \
       org.opencontainers.image.source="https://github.com/winterstream/wjson" \
       org.opencontainers.image.licenses="MIT"
 
-# Install LuaJIT, Lua 5.1 C modules (cjson, lpeg), and tools
+# Install LuaJIT, Lua 5.4, Lua 5.5, C modules, and tools
 RUN apk add --no-cache \
       luajit \
       lua5.1-cjson \
       lua5.1-lpeg \
       lua5.4 \
+      lua5.4-cjson \
+      lua5.4-lpeg \
+      lua5.5 \
+      lua5.5-cjson \
+      lua5.5-lpeg \
       luarocks5.1 \
       git \
       gzip && \
