@@ -27,10 +27,10 @@ Use `wjson` when:
 
 When to consider an alternative:
 
-- **If you need pure Lua on standard PUC Lua (5.2–5.5):** `lunajson` is the
-  better choice. Its pattern-matching architecture is better aligned with the
-  PUC bytecode interpreter, outperforming `wjson` across most benchmarks on
-  standard Lua.
+- **If you need pure Lua on standard PUC Lua 5.4 or 5.5:** `lunajson` is
+  generally the faster pure-Lua choice on modern PUC Lua releases, where its
+  pattern-matching architecture performs particularly well under the
+  interpreter.
 - **If you have a working C compiler:** A native C extension like `lua-cjson`
   will achieve higher raw character throughput for megabyte-scale bulk
   processing.
@@ -40,7 +40,7 @@ When to consider an alternative:
 | Library               | Implementation | Dependencies | Single File |  UTF-8 Validation   | Streaming (`decode_next`) | Compatibility     | Primary Strength                                                  |
 | :-------------------- | :------------- | :----------- | :---------: | :-----------------: | :-----------------------: | :---------------- | :---------------------------------------------------------------- |
 | **`wjson`**           | Pure Lua       | None         |     Yes     |       Strict        |            Yes            | LuaJIT, 5.2–5.5   | Fastest pure-Lua parser on LuaJIT; strict validation, single file |
-| **`lunajson`**        | Pure Lua       | None         |     No      |       Strict        |         SAX mode          | LuaJIT, 5.1–5.5   | Fastest pure-Lua parser on standard PUC Lua; SAX support          |
+| **`lunajson`**        | Pure Lua       | None         |     No      |       Strict        |         SAX mode          | LuaJIT, 5.1–5.5   | Fastest pure-Lua parser on PUC Lua 5.4–5.5; SAX support           |
 | **`rxi/json.lua`**    | Pure Lua       | None         |     Yes     | None (pass-through) |            No             | LuaJIT, 5.1–5.5   | Minimalist (~400 LOC) for simple scripts                          |
 | **`dkjson` (Pure)**   | Pure Lua       | None         |     Yes     |       Partial       |            Yes            | LuaJIT, 5.1–5.5   | Highly configurable with custom metatable options                 |
 | **`dkjson` (+ LPeg)** | Hybrid         | LPeg (C)     |     No      |       Partial       |            Yes            | LuaJIT, 5.1–5.5\* | Accelerated on PUC Lua (slower on LuaJIT)                         |
