@@ -41,6 +41,19 @@ curl -fsSL -o wjson.lua \
 Each GitHub release also includes the corresponding source rock and SHA-256
 checksums.
 
+## Benchmark Arena
+
+Run an automated head-to-head benchmark on your own machine without installing
+Lua or dependencies:
+
+```sh
+docker run --rm -it ghcr.io/winterstream/wjson
+```
+
+This compares `wjson` directly against pure Lua alternatives (`dkjson`,
+`lunajson`) and native C modules (`lua-cjson`, `dkjson` with LPeg) across both
+synthetic payloads and multi-megabyte real-world datasets.
+
 ## API
 
 ### `wjson.encode(value)`

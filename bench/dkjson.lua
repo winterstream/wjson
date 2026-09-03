@@ -611,7 +611,8 @@ end
 function json.use_lpeg()
   local g = require("lpeg")
 
-  if g.version() == "0.11" then
+  local gver = type(g.version) == "function" and g.version() or g.version
+  if gver == "0.11" then
     error "due to a bug in LPeg 0.11, it cannot be used for JSON matching"
   end
 
