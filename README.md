@@ -3,17 +3,44 @@
 [![CI](https://github.com/winterstream/wjson/actions/workflows/ci.yml/badge.svg)](https://github.com/winterstream/wjson/actions/workflows/ci.yml)
 [![LuaRocks](https://img.shields.io/luarocks/v/winterstream/wjson.svg)](https://luarocks.org/modules/winterstream/wjson)
 
-A fast, correct JSON library for Lua.
+A fast, correct JSON library for Lua with zero native dependencies.
 
-## About
+## When and Why to Use wjson
 
-`wjson` is a pure Lua JSON library designed around two priorities: correctness
-first, and good performance without native dependencies. It works across
-multiple Lua versions, including LuaJIT.
+Use `wjson` when:
 
-The implementation keeps a small set of measured optimizations in hot paths
-while preserving shared parsing and Unicode logic where possible. It also
-performs strict UTF-8 validation during decoding.
+- **You need pure Lua with zero native dependencies:** Ideal for embedded
+  systems, game engines (LÖVE, Defold), Neovim plugins, cross-platform CLI
+  tools, or environments where compiling C extensions is difficult or
+  prohibited. It is distributed as a single drop-in file (`wjson.lua`).
+- **You want the best performance in pure Lua:** On LuaJIT and PUC Lua 5.2–5.4,
+  `wjson` incorporates measured optimizations in hot paths (pre-allocated table
+  capacities via `table.new`, trace-friendly scan loops), consistently
+  outperforming traditional pure Lua parsers.
+- **You require strict correctness and security:** Unlike parsers that pass
+  through raw bytes unchecked, `wjson` enforces RFC 8259 compliance, passes the
+  JSONTestSuite, and rejects invalid UTF-8 sequences (overlong encodings,
+  invalid surrogates, out-of-range codepoints).
+- **You need streaming parsing:** The `decode_next` API allows parsing
+  consecutive or concatenated JSON values from a single string buffer without
+  slicing.
+
+When to consider an alternative:
+
+- If you have an environment with a guaranteed C compiler and your workload is
+  dominated by gigabyte-scale bulk string processing, a native C extension like
+  `lua-cjson` will achieve higher raw character throughput.
+
+## Competitor Comparison
+
+| Library               | Implementation | Dependencies | Single File |  UTF-8 Validation   | Streaming (`decode_next`) | Compatibility   | Primary Strength                                                  |
+| :-------------------- | :------------- | :----------- | :---------: | :-----------------: | :-----------------------: | :-------------- | :---------------------------------------------------------------- |
+| **`wjson`**           | Pure Lua       | None         |     Yes     |       Strict        |            Yes            | LuaJIT, 5.2–5.4 | Best pure-Lua speed on LuaJIT & modern Lua with strict validation |
+| **`rxi/json.lua`**    | Pure Lua       | None         |     Yes     | None (pass-through) |            No             | LuaJIT, 5.1–5.4 | Minimalist (~400 LOC) for simple scripts                          |
+| **`lunajson`**        | Pure Lua       | None         |     No      |       Strict        |         SAX mode          | LuaJIT, 5.1–5.4 | Established pure Lua parser with SAX support                      |
+| **`dkjson` (Pure)**   | Pure Lua       | None         |     Yes     |       Partial       |            Yes            | LuaJIT, 5.1–5.4 | Highly configurable with custom metatable options                 |
+| **`dkjson` (+ LPeg)** | Hybrid         | LPeg (C)     |     No      |       Partial       |            Yes            | LuaJIT, 5.1–5.4 | Accelerated on PUC Lua (slower on LuaJIT)                         |
+| **`lua-cjson`**       | C Extension    | C compiler   |     No      |   Lax / Optional    |            No             | LuaJIT, 5.1–5.4 | Highest raw throughput when native C compilation is acceptable    |
 
 ## Features
 
