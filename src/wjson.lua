@@ -462,6 +462,17 @@ local decode_value
 local parse_string
 
 local STRING_PATTERN = '["\\\1-\31%z\128-\255]'
+-- PUC 5.3+: special bytes that are NOT valid multibyte UTF-8 starts. A scan
+-- for this class stops a multibyte run before any byte utf8.len would accept
+-- but strict UTF-8 (and this library) must reject (F5-FF out-of-range starts).
+local NON_HIGH_SPECIAL = '["\\\1-\31%z\245-\255]'
+local utf8_len = utf8 and utf8.len
+-- Lua 5.3's utf8.len accepts surrogate encodings (ED A0-BF). When we detect
+-- that leniency, spans also stop at ED (surrogate lead byte) so ED sequences
+-- always go through strict per-character validation instead.
+if utf8_len and utf8_len("\xED\xA0\x80") then
+  NON_HIGH_SPECIAL = '["\\\1-\31%z\237\245-\255]'
+end
 
 local function clear_parts(parts, parts_len)
   for i = 1, parts_len do parts[i] = nil end
@@ -671,11 +682,31 @@ parse_string = function(str, pos, len)
       i = i + 1
       chunk_start = i
     else
-      local err
-      i, err = validate_utf8_at(str, i, len, b)
-      if err then
-        if parts then clear_parts(parts, parts_len) end
-        return err, nil
+      -- PUC 5.3+ only (utf8_len is nil elsewhere): batch-validate the whole
+      -- multibyte run in one utf8.len call instead of per-character
+      -- validate_utf8_at + boundary-scan restarts.
+      local skip_validate = false
+      if utf8_len and b >= UTF8_1BYTE_LIMIT then
+        local nxt = str_find(str, NON_HIGH_SPECIAL, i)
+        if not nxt then
+          if utf8_len(str, i, len) then
+            -- No closing quote ahead and the rest is valid UTF-8: unterminated.
+            skip_validate = true
+            i = len + 1
+          end
+        elseif nxt > i and utf8_len(str, i, nxt - 1) then
+          i = nxt
+          b = str_byte(str, nxt)
+          skip_validate = true
+        end
+      end
+      if not skip_validate then
+        local err
+        i, err = validate_utf8_at(str, i, len, b)
+        if err then
+          if parts then clear_parts(parts, parts_len) end
+          return err, nil
+        end
       end
     end
 
