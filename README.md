@@ -83,8 +83,21 @@ Run an automated head-to-head benchmark on your own machine without installing
 Lua or dependencies:
 
 ```sh
+# Default: LuaJIT
 docker run --rm -it ghcr.io/winterstream/wjson
+
+# Run under PUC Lua 5.5
+docker run --rm -it ghcr.io/winterstream/wjson --lua55
+
+# Run under PUC Lua 5.4
+docker run --rm -it ghcr.io/winterstream/wjson --lua54
+
+# Quick run (fewer iterations)
+docker run --rm -it ghcr.io/winterstream/wjson --quick
 ```
+
+> [!NOTE] `wjson` supports LuaJIT and PUC Lua 5.2–5.5. It does not support PUC
+> Lua 5.1, as it relies on Lua 5.2+ string and loading semantics.
 
 This compares `wjson` directly against pure Lua alternatives (`dkjson`,
 `lunajson`, `rxi/json.lua`) and native C modules (`lua-cjson`, `dkjson` with

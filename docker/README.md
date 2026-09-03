@@ -21,14 +21,21 @@ data).
 Run directly:
 
 ```sh
+# Default: LuaJIT
 docker run --rm -it ghcr.io/winterstream/wjson
-```
 
-Or for a quick (~5s) run:
+# Run under PUC Lua 5.5
+docker run --rm -it ghcr.io/winterstream/wjson --lua55
 
-```sh
+# Run under PUC Lua 5.4
+docker run --rm -it ghcr.io/winterstream/wjson --lua54
+
+# Quick (~5s) run
 docker run --rm -it ghcr.io/winterstream/wjson --quick
 ```
+
+> [!NOTE] `wjson` supports LuaJIT and PUC Lua 5.2–5.5. It does not support PUC
+> Lua 5.1 due to reliance on Lua 5.2+ string and loading semantics.
 
 ## Available Flags
 
