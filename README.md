@@ -13,10 +13,10 @@ Use `wjson` when:
   systems, game engines (LÖVE, Defold), Neovim plugins, cross-platform CLI
   tools, or environments where compiling C extensions is difficult or
   prohibited. It is distributed as a single drop-in file (`wjson.lua`).
-- **You want the best performance in pure Lua:** On LuaJIT and PUC Lua 5.2–5.5,
-  `wjson` incorporates measured optimizations in hot paths (pre-allocated table
-  capacities via `table.new`, trace-friendly scan loops), consistently
-  outperforming traditional pure Lua parsers.
+- **You want the best performance on LuaJIT:** On LuaJIT, `wjson` incorporates
+  measured optimizations in hot paths (pre-allocated table capacities via
+  `table.new`, trace-friendly scan loops), consistently outperforming other pure
+  Lua parsers (often 2×–5× faster than `lunajson` and `dkjson`).
 - **You require strict correctness and security:** Unlike parsers that pass
   through raw bytes unchecked, `wjson` enforces RFC 8259 compliance, passes the
   JSONTestSuite, and rejects invalid UTF-8 sequences (overlong encodings,
@@ -27,22 +27,29 @@ Use `wjson` when:
 
 When to consider an alternative:
 
-- If you have an environment with a guaranteed C compiler and your workload is
-  dominated by gigabyte-scale bulk string processing, a native C extension like
-  `lua-cjson` will achieve higher raw character throughput.
+- **If you need pure Lua on standard PUC Lua (5.2–5.5):** `lunajson` is the
+  better choice. Its pattern-matching architecture is better aligned with the
+  PUC bytecode interpreter, outperforming `wjson` across most benchmarks on
+  standard Lua.
+- **If you have a working C compiler:** A native C extension like `lua-cjson`
+  will achieve higher raw character throughput for megabyte-scale bulk
+  processing.
 
 ## Competitor Comparison
 
 | Library               | Implementation | Dependencies | Single File |  UTF-8 Validation   | Streaming (`decode_next`) | Compatibility     | Primary Strength                                                  |
 | :-------------------- | :------------- | :----------- | :---------: | :-----------------: | :-----------------------: | :---------------- | :---------------------------------------------------------------- |
-| **`wjson`**           | Pure Lua       | None         |     Yes     |       Strict        |            Yes            | LuaJIT, 5.2–5.5   | Best pure-Lua speed on LuaJIT & modern Lua with strict validation |
+| **`wjson`**           | Pure Lua       | None         |     Yes     |       Strict        |            Yes            | LuaJIT, 5.2–5.5   | Fastest pure-Lua parser on LuaJIT; strict validation, single file |
+| **`lunajson`**        | Pure Lua       | None         |     No      |       Strict        |         SAX mode          | LuaJIT, 5.1–5.5   | Fastest pure-Lua parser on standard PUC Lua; SAX support          |
 | **`rxi/json.lua`**    | Pure Lua       | None         |     Yes     | None (pass-through) |            No             | LuaJIT, 5.1–5.5   | Minimalist (~400 LOC) for simple scripts                          |
-| **`lunajson`**        | Pure Lua       | None         |     No      |       Strict        |         SAX mode          | LuaJIT, 5.1–5.5   | Established pure Lua parser with SAX support                      |
 | **`dkjson` (Pure)**   | Pure Lua       | None         |     Yes     |       Partial       |            Yes            | LuaJIT, 5.1–5.5   | Highly configurable with custom metatable options                 |
 | **`dkjson` (+ LPeg)** | Hybrid         | LPeg (C)     |     No      |       Partial       |            Yes            | LuaJIT, 5.1–5.5\* | Accelerated on PUC Lua (slower on LuaJIT)                         |
 | **`lua-cjson`**       | C Extension    | C compiler   |     No      |   Lax / Optional    |            No             | LuaJIT, 5.1–5.5\* | Highest raw throughput when native C compilation is acceptable    |
 
-\*_Note on Lua 5.5:_ Pure Lua libraries run directly on Lua 5.5 without changes. Native C extensions (`lua-cjson`, `lpeg`) require binaries compiled against Lua 5.5 headers (available via modern Linux distributions like Alpine and Nixpkgs, though upstream source rocks on LuaRocks may not yet default to 5.5).
+\*_Note on Lua 5.5:_ Pure Lua libraries run directly on Lua 5.5 without changes.
+Native C extensions (`lua-cjson`, `lpeg`) require binaries compiled against Lua
+5.5 headers (available via modern Linux distributions like Alpine and Nixpkgs,
+though upstream source rocks on LuaRocks may not yet default to 5.5).
 
 ## Features
 
@@ -174,8 +181,8 @@ print(wjson.encode(empty_array))
 ## Verification
 
 Every push and pull request runs the full test suite on LuaJIT and Lua 5.2, 5.3,
-5.4, and 5.5. The suite includes the JSONTestSuite and strict UTF-8 validation. The
-rockspec is linted in CI as well.
+5.4, and 5.5. The suite includes the JSONTestSuite and strict UTF-8 validation.
+The rockspec is linted in CI as well.
 
 ## Development
 
