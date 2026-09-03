@@ -33,7 +33,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@369eb991f42913e54162a03461c7847c024237c1 # v5.6.1
+        uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96 # v5.6.1
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
