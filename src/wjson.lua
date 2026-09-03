@@ -615,19 +615,26 @@ parse_string = function(str, pos, len)
     return str_sub(str, start, i - 1), i + 1
   end
 
-  local parts = tab_new(DEFAULT_PARTS_CAPACITY, 0)
+  -- The parts table is created lazily on the first backslash. Strings whose
+  -- only specials are UTF-8 high bytes (the common escape-free slow path)
+  -- keep their original bytes and need just one str_sub at the end.
+  local parts = nil
   local parts_len = 0
-  if i > start then
-    parts_len = 1
-    parts[parts_len] = str_sub(str, start, i - 1)
-  end
-  local chunk_start = i
+  local chunk_start = start
 
   while i and i <= len do
     if b == BYTE_QUOTE then
       if chunk_start <= i - 1 then
-        parts_len = parts_len + 1
-        parts[parts_len] = str_sub(str, chunk_start, i - 1)
+        local chunk = str_sub(str, chunk_start, i - 1)
+        if parts then
+          parts_len = parts_len + 1
+          parts[parts_len] = chunk
+        else
+          return chunk, i + 1
+        end
+      end
+      if not parts then
+        return "", i + 1
       end
       local result = tbl_concat(parts, "", 1, parts_len)
       clear_parts(parts, parts_len)
@@ -635,6 +642,9 @@ parse_string = function(str, pos, len)
     end
 
     if b == BYTE_BACKSLASH then
+      if not parts then
+        parts = tab_new(DEFAULT_PARTS_CAPACITY, 0)
+      end
       if chunk_start < i then
         parts_len = parts_len + 1
         parts[parts_len] = str_sub(str, chunk_start, i - 1)
@@ -650,11 +660,11 @@ parse_string = function(str, pos, len)
         local err
         parts_len, i, err = decode_unicode_escape(str, i, parts, parts_len)
         if err then
-          clear_parts(parts, parts_len)
+          if parts then clear_parts(parts, parts_len) end
           return err, nil
         end
       else
-        clear_parts(parts, parts_len)
+        if parts then clear_parts(parts, parts_len) end
         return "Invalid escape sequence \\\\" .. str_char(c or 0) .. " at position " .. i, nil
       end
 
@@ -664,7 +674,7 @@ parse_string = function(str, pos, len)
       local err
       i, err = validate_utf8_at(str, i, len, b)
       if err then
-        clear_parts(parts, parts_len)
+        if parts then clear_parts(parts, parts_len) end
         return err, nil
       end
     end
@@ -672,7 +682,7 @@ parse_string = function(str, pos, len)
     i, b = find_string_boundary(str, i, len)
   end
 
-  clear_parts(parts, parts_len)
+  if parts then clear_parts(parts, parts_len) end
   return "Unterminated string at position " .. pos, nil
 end
 
@@ -988,10 +998,10 @@ decode_value = function(str, pos, depth, len, b)
   b = b or str_byte(str, pos)
   if not b then
     return "Unexpected EOF", nil
-  elseif (b >= BYTE_0 and b <= BYTE_9) or b == BYTE_MINUS then
-    return parse_number(str, pos, len)
   elseif b == BYTE_QUOTE then
     return parse_string(str, pos, len)
+  elseif (b >= BYTE_0 and b <= BYTE_9) or b == BYTE_MINUS then
+    return parse_number(str, pos, len)
   elseif b == BYTE_LBRACKET then
     return parse_array(str, pos, depth, len)
   elseif b == BYTE_LBRACE then
