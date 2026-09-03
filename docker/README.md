@@ -36,8 +36,9 @@ docker run --rm -it ghcr.io/winterstream/wjson --quick
 
 <!-- prettier-ignore -->
 > [!NOTE]
-> `wjson` supports LuaJIT and PUC Lua 5.2–5.5. It does not support PUC Lua 5.1
-> because it uses `goto`.
+> `wjson` supports LuaJIT and PUC Lua 5.2–5.5. It does not support standard
+> PUC Lua 5.1 due to its reliance on standard bitwise facilities (`bit32`,
+> native bitwise operators, or LuaJIT `bit`) and Lua 5.2+ `load()` semantics.
 
 ## Available Flags
 
