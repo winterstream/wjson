@@ -130,10 +130,12 @@ if ok_rxi and mod_rxi and mod_rxi.decode and mod_rxi.encode then
   })
 end
 
--- 4. dkjson (LPeg mode)
+-- 5. dkjson (LPeg mode)
 local ok_dk_lpeg, mod_dk_lpeg = pcall(function()
   local d = dofile("bench/dkjson.lua")
-  if d.use_lpeg then d.use_lpeg() end
+  if d.use_lpeg then
+    return d.use_lpeg()
+  end
   return d
 end)
 if ok_dk_lpeg and mod_dk_lpeg and mod_dk_lpeg.using_lpeg then
