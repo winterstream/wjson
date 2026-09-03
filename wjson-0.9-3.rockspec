@@ -1,5 +1,5 @@
 package = "wjson"
-version = "0.9-2"
+version = "0.9-3"
 source = {
    url = "git+https://github.com/winterstream/wjson.git"
 }

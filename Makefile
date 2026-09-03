@@ -1,6 +1,6 @@
 .PHONY: test lint pack install clean help
 
-ROCKSPEC=wjson-0.1-1.rockspec
+ROCKSPEC=wjson-0.9-3.rockspec
 
 # Use nix-shell if nix is available, otherwise run directly
 define run_cmd
