@@ -37,14 +37,14 @@ When to consider an alternative:
 
 ## Competitor Comparison
 
-| Library                                                    | Implementation | Dependencies | Single File |  UTF-8 Validation   | Streaming (`decode_next`) | Compatibility     | Primary Strength                                                  |
-| :--------------------------------------------------------- | :------------- | :----------- | :---------: | :-----------------: | :-----------------------: | :---------------- | :---------------------------------------------------------------- |
-| **`wjson`**                                                | Pure Lua       | None         |     Yes     |       Strict        |            Yes            | LuaJIT, 5.2–5.5   | Fastest pure-Lua parser on LuaJIT; strict validation, single file |
-| [**`lunajson`**](https://github.com/grafi-tt/lunajson)     | Pure Lua       | None         |     No      |       Strict        |         SAX mode          | LuaJIT, 5.1–5.5   | Fastest pure-Lua parser on PUC Lua 5.4–5.5; SAX support           |
-| [**`rxi/json.lua`**](https://github.com/rxi/json.lua)      | Pure Lua       | None         |     Yes     | None (pass-through) |            No             | LuaJIT, 5.1–5.5   | Minimalist (~400 LOC) for simple scripts                          |
-| [**`dkjson`**](https://github.com/LuaDist/dkjson) (Pure)   | Pure Lua       | None         |     Yes     |       Partial       |            Yes            | LuaJIT, 5.1–5.5   | Highly configurable with custom metatable options                 |
-| [**`dkjson`**](https://github.com/LuaDist/dkjson) (+ LPeg) | Hybrid         | LPeg (C)     |     No      |       Partial       |            Yes            | LuaJIT, 5.1–5.5\* | Accelerated on PUC Lua (slower on LuaJIT)                         |
-| [**`lua-cjson`**](https://github.com/mpx/lua-cjson)        | C Extension    | C compiler   |     No      |   Lax / Optional    |            No             | LuaJIT, 5.1–5.5\* | Highest raw throughput when native C compilation is acceptable    |
+| Library                                                | Implementation | Dependencies | Single File |  UTF-8 Validation   | Streaming (`decode_next`) | Compatibility     | Primary Strength                                                  |
+| :----------------------------------------------------- | :------------- | :----------- | :---------: | :-----------------: | :-----------------------: | :---------------- | :---------------------------------------------------------------- |
+| **`wjson`**                                            | Pure Lua       | None         |     Yes     |       Strict        |            Yes            | LuaJIT, 5.2–5.5   | Fastest pure-Lua parser on LuaJIT; strict validation, single file |
+| [**`lunajson`**](https://github.com/grafi-tt/lunajson) | Pure Lua       | None         |     No      |       Strict        |         SAX mode          | LuaJIT, 5.1–5.5   | Fastest pure-Lua parser on PUC Lua 5.4–5.5; SAX support           |
+| [**`rxi/json.lua`**](https://github.com/rxi/json.lua)  | Pure Lua       | None         |     Yes     | None (pass-through) |            No             | LuaJIT, 5.1–5.5   | Minimalist (~400 LOC) for simple scripts                          |
+| [**`dkjson`**](https://dkolf.de/dkjson-lua/) (Pure)    | Pure Lua       | None         |     Yes     |       Partial       |            Yes            | LuaJIT, 5.1–5.5   | Highly configurable with custom metatable options                 |
+| [**`dkjson`**](https://dkolf.de/dkjson-lua/) (+ LPeg)  | Hybrid         | LPeg (C)     |     No      |       Partial       |            Yes            | LuaJIT, 5.1–5.5\* | Accelerated on PUC Lua (slower on LuaJIT)                         |
+| [**`lua-cjson`**](https://github.com/mpx/lua-cjson)    | C Extension    | C compiler   |     No      |   Lax / Optional    |            No             | LuaJIT, 5.1–5.5\* | Highest raw throughput when native C compilation is acceptable    |
 
 \*_Note on Lua 5.5:_ Pure Lua libraries run directly on Lua 5.5 without changes.
 Native C extensions (`lua-cjson`, `lpeg`) require binaries compiled against Lua

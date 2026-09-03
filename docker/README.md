@@ -4,12 +4,12 @@ A self-contained benchmarking container that pits **wjson** against popular Lua
 JSON libraries:
 
 - **wjson** `[PURE LUA]`
-- [**dkjson**](https://github.com/LuaDist/dkjson) `[PURE LUA]` (in pure-Lua
-  scanner mode)
+- [**dkjson**](https://dkolf.de/dkjson-lua/) `[PURE LUA]` (in pure-Lua scanner
+  mode)
 - [**lunajson**](https://github.com/grafi-tt/lunajson) `[PURE LUA]`
 - [**rxi/json.lua**](https://github.com/rxi/json.lua) `[PURE LUA]`
-- [**dkjson (LPeg)**](https://github.com/LuaDist/dkjson) `[C EXT]` (using the
-  native C LPeg parsing expression grammar)
+- [**dkjson (LPeg)**](https://dkolf.de/dkjson-lua/) `[C EXT]` (using the native
+  C LPeg parsing expression grammar)
 - [**lua-cjson**](https://github.com/mpx/lua-cjson) `[C EXT]` (OpenResty native
   C module)
 
