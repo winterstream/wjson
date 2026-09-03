@@ -8,6 +8,7 @@ on:
       - "docker/**"
       - "src/**"
       - "bench/dkjson.lua"
+      - ".github/workflows/container.yml"
     tags:
       - "v*"
   workflow_dispatch:
