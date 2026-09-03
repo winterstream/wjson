@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish release assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      - name: Check tag version
+        id: version
+        shell: bash
+        run: |
+          rockspec="$(find . -maxdepth 1 -name '*.rockspec' -print -quit)"
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$rockspec")"
+          tag_version="${GITHUB_REF_NAME#v}"
+
+          if [[ -z "$version" || "$version" != "$tag_version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match rockspec version $version" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build release assets
+        run: make release-assets
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          assets=(
+            "dist/wjson.lua"
+            "dist/wjson-${version}.src.rock"
+            "dist/SHA256SUMS"
+          )
+
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "wjson ${version}" --generate-notes
+          fi

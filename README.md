@@ -30,6 +30,17 @@ You can install `wjson` using LuaRocks:
 luarocks install wjson
 ```
 
+If LuaRocks is unavailable, download the single-file distribution from the
+[latest GitHub release](https://github.com/winterstream/wjson/releases/latest):
+
+```sh
+curl -fsSL -o wjson.lua \
+  https://github.com/winterstream/wjson/releases/latest/download/wjson.lua
+```
+
+Each GitHub release also includes the corresponding source rock and SHA-256
+checksums.
+
 ## API
 
 ### `wjson.encode(value)`
