@@ -7,7 +7,7 @@ on:
     paths:
       - "docker/**"
       - "src/**"
-      - "bench/dkjson.lua"
+      - "bench/**"
       - ".github/workflows/container.yml"
     tags:
       - "v*"

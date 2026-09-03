@@ -6,6 +6,7 @@ JSON libraries:
 - **wjson** `[PURE LUA]`
 - **dkjson** `[PURE LUA]` (in pure-Lua scanner mode)
 - **lunajson** `[PURE LUA]`
+- **rxi/json.lua** `[PURE LUA]`
 - **dkjson (LPeg)** `[C EXT]` (using the native C LPeg parsing expression
   grammar)
 - **lua-cjson** `[C EXT]` (OpenResty native C module)

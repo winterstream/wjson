@@ -51,8 +51,8 @@ docker run --rm -it ghcr.io/winterstream/wjson
 ```
 
 This compares `wjson` directly against pure Lua alternatives (`dkjson`,
-`lunajson`) and native C modules (`lua-cjson`, `dkjson` with LPeg) across both
-synthetic payloads and multi-megabyte real-world datasets.
+`lunajson`, `rxi/json.lua`) and native C modules (`lua-cjson`, `dkjson` with
+LPeg) across both synthetic payloads and multi-megabyte real-world datasets.
 
 ## API
 

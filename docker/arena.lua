@@ -50,6 +50,7 @@ print(c_bold .. "Libraries under test:" .. c_reset)
 print(string.format("  * %s%-16s%s %s (Pure Lua, zero dependencies)", c_green, "wjson", c_reset, tag_pure))
 print(string.format("  * %s%-16s%s %s (dkjson in pure-Lua scanner mode)", c_green, "dkjson", c_reset, tag_pure))
 print(string.format("  * %s%-16s%s %s (lunajson pure-Lua parser)", c_green, "lunajson", c_reset, tag_pure))
+print(string.format("  * %s%-16s%s %s (rxi/json.lua pure-Lua parser)", c_green, "rxi/json.lua", c_reset, tag_pure))
 print(string.format("  * %s%-16s%s %s (dkjson using C LPeg grammar)", c_yellow, "dkjson (LPeg)", c_reset, tag_cext))
 print(string.format("  * %s%-16s%s %s (OpenResty lua-cjson native C module)", c_yellow, "lua-cjson", c_reset, tag_cext))
 print(c_cyan .. "--------------------------------------------------------------------------------" .. c_reset)
@@ -108,6 +109,24 @@ if ok_luna and mod_luna then
     tag = tag_pure,
     encode = mod_luna.encode,
     decode = mod_luna.decode,
+  })
+end
+
+-- 4. rxi/json.lua (Pure Lua)
+local ok_rxi, mod_rxi = pcall(function()
+  return dofile("bench/rxi_json.lua")
+end)
+if not ok_rxi then
+  ok_rxi, mod_rxi = pcall(require, "json")
+end
+if ok_rxi and mod_rxi and mod_rxi.decode and mod_rxi.encode then
+  table.insert(libs, {
+    id = "rxi_json",
+    name = "rxi/json.lua",
+    category = "pure",
+    tag = tag_pure,
+    encode = mod_rxi.encode,
+    decode = mod_rxi.decode,
   })
 end
 

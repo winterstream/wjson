@@ -24,6 +24,7 @@ WORKDIR /app
 # Copy library and benchmark code
 COPY src/ /app/src/
 COPY bench/dkjson.lua /app/bench/dkjson.lua
+COPY bench/rxi_json.lua /app/bench/rxi_json.lua
 COPY spec/datasets/ /app/spec/datasets/
 COPY docker/arena.lua /app/arena.lua
 COPY docker/entrypoint.sh /entrypoint.sh
