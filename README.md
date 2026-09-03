@@ -1,5 +1,8 @@
 # wjson
 
+[![CI](https://github.com/winterstream/wjson/actions/workflows/ci.yml/badge.svg)](https://github.com/winterstream/wjson/actions/workflows/ci.yml)
+[![LuaRocks](https://img.shields.io/luarocks/v/winterstream/wjson.svg)](https://luarocks.org/modules/winterstream/wjson)
+
 A fast, correct JSON library for Lua.
 
 ## About
@@ -114,6 +117,12 @@ local empty_array = setmetatable({}, wjson.array_mt)
 print(wjson.encode(empty_array))
 -- Output: []
 ```
+
+## Verification
+
+Every push and pull request runs the full test suite on LuaJIT and Lua 5.2, 5.3,
+and 5.4. The suite includes the JSONTestSuite and strict UTF-8 validation. The
+rockspec is linted in CI as well.
 
 ## Development
 
