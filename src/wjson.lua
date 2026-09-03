@@ -59,6 +59,7 @@ local str_char                   = string.char
 local str_format                 = string.format
 local str_gsub                   = string.gsub
 local str_find                   = string.find
+local str_match                  = string.match
 local tbl_concat                 = table.concat
 local tostring                   = tostring
 local tonumber                   = tonumber
@@ -466,6 +467,11 @@ local STRING_PATTERN = '["\\\1-\31%z\128-\255]'
 -- for this class stops a multibyte run before any byte utf8.len would accept
 -- but strict UTF-8 (and this library) must reject (F5-FF out-of-range starts).
 local NON_HIGH_SPECIAL = '["\\\1-\31%z\245-\255]'
+-- PUC-only: fused object head - skip whitespace, verify the key quote,
+-- and capture the key content start in one pattern call.
+local HEAD_KEY_POS               = '^[ \t\n\r]*"()'
+local HEAD_RBRACE_POS            = '^[ \t\n\r]*()}'
+
 local utf8_len = utf8 and utf8.len
 -- Lua 5.3's utf8.len accepts surrogate encodings (ED A0-BF). When we detect
 -- that leniency, spans also stop at ED (surrogate lead byte) so ED sequences
@@ -961,13 +967,23 @@ else
     pos = pos + 1 -- skip {
 
     local b
-    pos, b = skip_whitespace(str, pos)
-    while b ~= BYTE_RBRACE do
-      -- Parse Key
-      if b ~= BYTE_QUOTE then
+    local after_comma = false
+    local comma_pos
+    while true do
+      -- Fused head: one pattern call skips whitespace, verifies the key
+      -- quote, and captures the key content start.
+      local kstart = str_match(str, HEAD_KEY_POS, pos)
+      if not kstart then
+        local cend = str_match(str, HEAD_RBRACE_POS, pos)
+        if cend then
+          if after_comma then
+            return "Trailing comma in object at " .. comma_pos, nil
+          end
+          return obj, cend + 1
+        end
         return "Expected string key for object at " .. (pos or "?"), nil
       end
-      local key, new_pos = parse_string(str, pos, len)
+      local key, new_pos = parse_string(str, kstart - 1, len)
       if not new_pos or not key then return key, nil end
       pos = new_pos
 
@@ -996,29 +1012,26 @@ else
       -- skip whitespace / peek comma/brace
       b = str_byte(str, pos)
       if b == BYTE_COMMA then
-        local comma_pos = pos
+        comma_pos = pos
         pos = pos + 1
-        pos, b = skip_whitespace(str, pos)
-        if b == BYTE_RBRACE then
-          return "Trailing comma in object at " .. comma_pos, nil
-        end
+        after_comma = true
+        -- Next iteration's fused head skips whitespace, finds the next key
+        -- quote, and detects a trailing comma via the closing-brace check.
       elseif b == BYTE_RBRACE then
-        -- proceed
+        return obj, pos + 1
       else
         pos, b = skip_whitespace(str, pos)
         if b == BYTE_COMMA then
-          local comma_pos = pos
+          comma_pos = pos
           pos = pos + 1
-          pos, b = skip_whitespace(str, pos)
-          if b == BYTE_RBRACE then
-            return "Trailing comma in object at " .. comma_pos, nil
-          end
+          after_comma = true
         elseif b ~= BYTE_RBRACE then
           return "Expected } or , at " .. pos, nil
+        else
+          return obj, pos + 1
         end
       end
     end
-    return obj, pos + 1
   end
 end
 
