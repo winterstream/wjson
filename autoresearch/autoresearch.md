@@ -21,17 +21,35 @@ steps if an experiment requires multi-step refactoring.
 
 ## Metrics
 
-- **Primary**: `puc_decode_ms` (milliseconds, lower is better) — total decode
-  time summed across PUC Lua 5.2, 5.3, 5.4, and 5.5.
-- **Target Secondary**: `puc_numbers_ms` (milliseconds, lower is better) —
-  decode time for `synthetic-complex-numbers` summed across PUC Lua 5.2–5.5.
-- **Guard Metrics**:
-  - `luajit_decode_ms`, `luajit_total_ms` — LuaJIT decode and total time (must
-    not regress; LuaJIT must retain its compiled byte-loop or integer
-    fast-paths).
-  - `lua52_decode_ms`, `lua53_decode_ms`, `lua54_decode_ms`, `lua55_decode_ms` —
-    per-runtime decode times to verify consistent improvements across all PUC
-    versions.
+Results are strictly separated and never aggregated across versions. Lua 5.4+
+features a generational garbage collector, new VM bytecode dispatch, and
+distinct table/string performance characteristics compared to Lua 5.2/5.3 and
+LuaJIT. Autoresearch evaluates decode performance for each environment
+independently.
+
+### Independent Decode Speeds (milliseconds, lower is better)
+
+- `luajit_decode_ms` — LuaJIT decode time (must not regress)
+- `lua52_decode_ms` — PUC Lua 5.2 decode time
+- `lua53_decode_ms` — PUC Lua 5.3 decode time
+- `lua54_decode_ms` — PUC Lua 5.4 decode time
+- `lua55_decode_ms` — PUC Lua 5.5 decode time
+
+### Number Parsing Speeds (`synthetic-complex-numbers`, ms)
+
+- `luajit_numbers_ms`
+- `lua52_numbers_ms`
+- `lua53_numbers_ms`
+- `lua54_numbers_ms`
+- `lua55_numbers_ms`
+
+### Independent Total Times (Guarding against encode regressions, ms)
+
+- `luajit_total_ms`
+- `lua52_total_ms`
+- `lua53_total_ms`
+- `lua54_total_ms`
+- `lua55_total_ms`
 
 ## How to Run
 
