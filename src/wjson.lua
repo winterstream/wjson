@@ -471,6 +471,7 @@ local NON_HIGH_SPECIAL = '["\\\1-\31%z\245-\255]'
 -- and capture the key content start in one pattern call.
 local HEAD_KEY_POS               = '^[ \t\n\r]*"()'
 local HEAD_RBRACE_POS            = '^[ \t\n\r]*()}'
+local FUSED_KEY_COLON            = '^[ \t\n\r]*"([^"\\\1-\31%z\128-\255]*)"[ \t\n\r]*:()'
 
 local utf8_len = utf8 and utf8.len
 -- Lua 5.3's utf8.len accepts surrogate encodings (ED A0-BF). When we detect
@@ -484,8 +485,9 @@ local function clear_parts(parts, parts_len)
   for i = 1, parts_len do parts[i] = nil end
 end
 
-local function find_string_boundary(str, pos, len)
-  if JIT then
+local find_string_boundary
+if JIT then
+  find_string_boundary = function(str, pos, len)
     local i = pos
     while i <= len do
       local b = str_byte(str, i)
@@ -496,12 +498,14 @@ local function find_string_boundary(str, pos, len)
     end
     return nil, nil
   end
-
-  local special_pos = str_find(str, STRING_PATTERN, pos)
-  if not special_pos then
-    return nil, nil
+else
+  find_string_boundary = function(str, pos, len)
+    local special_pos = str_find(str, STRING_PATTERN, pos)
+    if not special_pos then
+      return nil, nil
+    end
+    return special_pos, str_byte(str, special_pos)
   end
-  return special_pos, str_byte(str, special_pos)
 end
 
 local function continuation_byte(b)
@@ -1032,34 +1036,36 @@ else
     local after_comma = false
     local comma_pos
     while true do
-      -- Fused head: one pattern call skips whitespace, verifies the key
-      -- quote, and captures the key content start.
-      local kstart = str_match(str, HEAD_KEY_POS, pos)
-      if not kstart then
-        local cend = str_match(str, HEAD_RBRACE_POS, pos)
-        if cend then
-          if after_comma then
-            return "Trailing comma in object at " .. comma_pos, nil
-          end
-          return obj, cend + 1
-        end
-        return "Expected string key for object at " .. (pos or "?"), nil
-      end
-      local key, new_pos = parse_string(str, kstart - 1, len)
-      if not new_pos or not key then return key, nil end
-      pos = new_pos
-
-      -- Colon
-      -- skip whitespace / peek colon
-      b = str_byte(str, pos)
-      if b == BYTE_COLON then
-        pos = pos + 1
+      local key, new_pos = str_match(str, FUSED_KEY_COLON, pos)
+      if key then
+        pos = new_pos
       else
-        pos, b = skip_whitespace(str, pos)
-        if b ~= BYTE_COLON then
-          return "Expected : after key at " .. pos, nil
+        local kstart = str_match(str, HEAD_KEY_POS, pos)
+        if not kstart then
+          local cend = str_match(str, HEAD_RBRACE_POS, pos)
+          if cend then
+            if after_comma then
+              return "Trailing comma in object at " .. comma_pos, nil
+            end
+            return obj, cend + 1
+          end
+          return "Expected string key for object at " .. (pos or "?"), nil
         end
-        pos = pos + 1
+        local k, npos = parse_string(str, kstart - 1, len)
+        if not npos or not k then return k, nil end
+        pos = npos
+
+        b = str_byte(str, pos)
+        if b == BYTE_COLON then
+          pos = pos + 1
+        else
+          pos, b = skip_whitespace(str, pos)
+          if b ~= BYTE_COLON then
+            return "Expected : after key at " .. pos, nil
+          end
+          pos = pos + 1
+        end
+        key = k
       end
 
       -- Value
