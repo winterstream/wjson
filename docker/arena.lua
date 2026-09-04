@@ -25,6 +25,11 @@ for _, arg_val in ipairs(arg or {}) do
   end
 end
 
+local benchmark_repeats = tonumber(os.getenv("ARENA_REPEATS")) or (opt_quick and 1 or 3)
+if benchmark_repeats < 1 then
+  error("ARENA_REPEATS must be positive")
+end
+
 -- Terminal colors
 local c_reset  = opt_no_color and "" or "\27[0m"
 local c_bold   = opt_no_color and "" or "\27[1m"
@@ -173,6 +178,11 @@ local function reset_jit_and_gc()
   collectgarbage("collect")
 end
 
+local function median(samples)
+  table.sort(samples)
+  return samples[math.ceil(#samples / 2)]
+end
+
 math.randomseed(42)
 
 local function codepoint_to_utf8(cp)
@@ -289,7 +299,7 @@ local targets = {}
 if not opt_datasets_only then
   local sw_short = generate_shallow_wide(16, 64)
   local sw_short_json = mod_wjson.encode(sw_short)
-  table.insert(targets, { name = "Shallow Wide (Short Strings, 200 keys)", json = sw_short_json, size = #sw_short_json, iters = opt_quick and 10 or 30 })
+  table.insert(targets, { name = "Shallow Wide (Short Strings, 200 keys)", json = sw_short_json, size = #sw_short_json, iters = opt_quick and 25 or 100 })
 
   local sw_long = generate_shallow_wide(512, 4096)
   local sw_long_json = mod_wjson.encode(sw_long)
@@ -297,13 +307,13 @@ if not opt_datasets_only then
 
   local dn_short = generate_deep_nested(5, 16, 64)
   local dn_short_json = mod_wjson.encode(dn_short)
-  table.insert(targets, { name = "Deeply Nested (Short Strings, ~120 tables)", json = dn_short_json, size = #dn_short_json, iters = opt_quick and 10 or 25 })
+  table.insert(targets, { name = "Deeply Nested (Short Strings, ~120 tables)", json = dn_short_json, size = #dn_short_json, iters = opt_quick and 25 or 100 })
 
   local uni_json = generate_unicode_escaped_json()
-  table.insert(targets, { name = "Synthetic Unicode Escapes (\\uXXXX)", json = uni_json, size = #uni_json, iters = opt_quick and 5 or 15 })
+  table.insert(targets, { name = "Synthetic Unicode Escapes (\\uXXXX)", json = uni_json, size = #uni_json, iters = opt_quick and 10 or 30 })
 
   local num_json = generate_complex_numbers_json()
-  table.insert(targets, { name = "Synthetic Complex Numbers (2500 nums)", json = num_json, size = #num_json, iters = opt_quick and 5 or 15 })
+  table.insert(targets, { name = "Synthetic Complex Numbers (2500 nums)", json = num_json, size = #num_json, iters = opt_quick and 10 or 30 })
 end
 
 if not opt_synthetic_only then
@@ -358,24 +368,45 @@ for t_idx, target in ipairs(targets) do
     local e_total = 0
 
     if can_decode and target.iters > 0 then
-      -- 1. Benchmark Decode
-      for _ = 1, (is_luajit and 2 or 0) do pcall(lib.decode, target.json) end
-      reset_jit_and_gc()
-      local t0 = os.clock()
-      for _ = 1, target.iters do
-        lib.decode(target.json)
-      end
-      d_total = (os.clock() - t0)
+      local warmup_iters = is_luajit and math.min(10, math.max(2, math.floor(target.iters * 0.2))) or 0
+      local decode_samples = {}
+      local encode_samples = {}
 
-      -- 2. Benchmark Encode
-      if can_encode then
-        for _ = 1, (is_luajit and 2 or 0) do pcall(lib.encode, parsed_val) end
+      for _ = 1, benchmark_repeats do
+        -- Flush before warmup, not immediately before timing. This keeps JIT
+        -- compilation out of the reported steady-state samples.
         reset_jit_and_gc()
-        local t1 = os.clock()
-        for _ = 1, target.iters do
-          lib.encode(parsed_val)
+        for _ = 1, warmup_iters do
+          lib.decode(target.json)
         end
-        e_total = (os.clock() - t1)
+        if warmup_iters > 0 then
+          collectgarbage("collect")
+        end
+
+        local t0 = os.clock()
+        for _ = 1, target.iters do
+          lib.decode(target.json)
+        end
+        decode_samples[#decode_samples + 1] = os.clock() - t0
+
+        if can_encode then
+          for _ = 1, warmup_iters do
+            lib.encode(parsed_val)
+          end
+          if warmup_iters > 0 then
+            collectgarbage("collect")
+          end
+          local t1 = os.clock()
+          for _ = 1, target.iters do
+            lib.encode(parsed_val)
+          end
+          encode_samples[#encode_samples + 1] = os.clock() - t1
+        end
+      end
+
+      d_total = median(decode_samples)
+      if can_encode then
+        e_total = median(encode_samples)
       end
     end
 

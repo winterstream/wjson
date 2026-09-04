@@ -1,162 +1,106 @@
-# Autoresearch: Experiment 2 — Number Parsing via Anchored Regex in PUC Lua
+# Autoresearch: Experiment 3 — Object-Key Allocation
 
 ## Objective
 
-Optimize JSON number parsing performance in PUC Lua (5.2, 5.3, 5.4, 5.5) using
-anchored pattern matching (`string.find` / `string.match`) to push digit
-scanning from interpreted Lua bytecode into the C runtime, while maintaining
-strict RFC 8259 compliance and ensuring **no regressions on LuaJIT**.
+Optimize allocations caused by JSON object-key parsing in `src/wjson.lua` across
+LuaJIT and PUC Lua 5.2–5.5. Reuse repeated schema keys where it is measurably
+safe, without weakening validation, allowing unbounded memory growth, or
+regressing another runtime.
 
-All 5 runtimes must be benchmarked on every iteration:
+Every iteration measures all five runtimes:
 
-1. **LuaJIT 2.1**
-2. **PUC Lua 5.2**
-3. **PUC Lua 5.3**
-4. **PUC Lua 5.4**
-5. **PUC Lua 5.5**
+1. LuaJIT 2.1
+2. PUC Lua 5.2
+3. PUC Lua 5.3
+4. PUC Lua 5.4
+5. PUC Lua 5.5
 
-The final code must introduce no obvious regressions across any of the 5
-environments, though temporary regressions are permitted during intermediate
-steps if an experiment requires multi-step refactoring.
+Each experiment is one atomic source change. A result is not trusted from one
+noisy runtime sample.
 
-## Metrics
+## Metrics and decision rule
 
-Results are strictly separated and never aggregated across versions. Lua 5.4+
-features a generational garbage collector, new VM bytecode dispatch, and
-distinct table/string performance characteristics compared to Lua 5.2/5.3 and
-LuaJIT. Autoresearch evaluates decode performance for each environment
-independently.
+The primary metric is `composite_decode_ms`, the geometric mean of the five
+steady-state decode times:
 
-### Independent Decode Speeds (milliseconds, lower is better)
+```latex
+G = (T_{JIT} T_{52} T_{53} T_{54} T_{55})^{1/5}
+```
 
-- `luajit_decode_ms` — LuaJIT decode time (must not regress)
-- `lua52_decode_ms` — PUC Lua 5.2 decode time
-- `lua53_decode_ms` — PUC Lua 5.3 decode time
-- `lua54_decode_ms` — PUC Lua 5.4 decode time
-- `lua55_decode_ms` — PUC Lua 5.5 decode time
+Lower is better. `autoresearch/baseline_metrics.json` stores the last accepted
+measurements. A candidate is vetoed if any runtime is more than
+`NOISE_THRESHOLD` (default `0.02`, or 2%) slower than its baseline. Vetoed runs
+emit `METRIC composite_decode_ms=99999.00`.
 
-### Number Parsing Speeds (`synthetic-complex-numbers`, ms)
+The script also emits independent decode, number, and total-time metrics for
+diagnosis. `latest_run.json` is only a measurement artifact; it is never a
+baseline until explicitly promoted with:
 
-- `luajit_numbers_ms`
-- `lua52_numbers_ms`
-- `lua53_numbers_ms`
-- `lua54_numbers_ms`
-- `lua55_numbers_ms`
+```sh
+./autoresearch/autoresearch.sh --update-baseline
+```
 
-### Independent Total Times (Guarding against encode regressions, ms)
+## Benchmark methodology
 
-- `luajit_total_ms`
-- `lua52_total_ms`
-- `lua53_total_ms`
-- `lua54_total_ms`
-- `lua55_total_ms`
+LuaJIT measurements must separate trace compilation from steady-state decode:
 
-## How to Run
+- `bench/bench.lua` flushes LuaJIT before each dataset, warms it after the
+  flush, then measures a contiguous batch of decodes.
+- `BENCH_WARMUP` controls the post-flush warmup count; the default is `5`.
+- `BENCH_MIN_ITERS` prevents quick runs from measuring a large dataset once; the
+  default is `3`.
+- `BENCH_REPEATS` runs each runtime in independent processes and uses the median
+  per-runtime sample; the default is `3`.
+- The arena uses `ARENA_REPEATS` with the same median policy; quick arena runs
+  default to one repeat.
 
-```bash
+The old interleaved benchmark flushed LuaJIT before each pass and sometimes
+measured only one Wikipedia decode. That mixed JIT compilation and throughput,
+so its single-run LuaJIT results are historical evidence only.
+
+Run the complete matrix with:
+
+```sh
 ./autoresearch/autoresearch.sh
 ```
 
-This runs:
+Run the public comparison arena with:
 
-1. Load check across all 5 environments (`luajit`, `lua52`, `lua53`, `lua54`,
-   `lua55`).
-2. Full test suite validation (`./run_tests.sh` across all 5 environments, 504
-   tests each).
-3. Full benchmark suite across all 5 environments, extracting structured
-   `METRIC` lines.
+```sh
+make arena ARGS="--no-color"
+make arena ARGS="--datasets-only --no-color"
+```
 
-## Files in Scope
+## Target workloads
 
-- `src/wjson.lua` — main library implementation (focus on `parse_number` and
-  PUC-specific decode paths).
-- `bench/bench.lua` — benchmark harness (can add instrumentation or adjust
-  iterations if justified).
-- `autoresearch/autoresearch.sh` — test and benchmark runner.
-- `autoresearch/autoresearch.md` — experiment tracker and documentation.
+- `wikipedia-movie-data`: 36,000+ uniform objects with repeated keys.
+- `citm_catalog`: nested objects with repeated schema fields.
+- `twitter`: heterogeneous metadata objects.
+- `github-gists` and Barcelona universities: wider and escaped-key controls.
+- Synthetic Unicode and number workloads: regression controls outside key
+  parsing.
 
-## Off Limits & Invariants
+## Planned exploration
 
-- **Correctness is non-negotiable**:
-  - All 504 tests in `./run_tests.sh` must pass on all 5 engines (`luajit`,
-    `lua52`, `lua53`, `lua54`, `lua55`).
-  - Strict JSON number rules must remain enforced:
-    - No leading zeros (`01`, `007` are invalid).
-    - No bare leading signs without digits (`+1` is invalid in JSON, `-` alone
-      is invalid).
-    - No trailing decimal dots (`1.` is invalid).
-    - Exponents must have digits (`1e`, `1e+` are invalid).
-    - Numbers out of range or malformed must report accurate error messages and
-      positions.
-- **Pure Lua only**: Zero C dependencies or external modules.
-- **Compatibility**: Must support LuaJIT and PUC Lua 5.2 through 5.5.
+1. Measure key capture, string allocation, and GC costs on repeated object
+   schemas.
+2. Evaluate bounded schema-aware key reuse for common unescaped keys.
+3. Test raw-byte matching for predicted keys without allocating a temporary key.
+4. Keep cache checks out of heterogeneous or escaped-key paths when they do not
+   pay.
 
-## Architectural Analysis: Experiment 2 (Why & How)
+Caches must be bounded. Escaped keys, duplicate keys, malformed delimiters,
+trailing commas, invalid UTF-8, and exact error positions remain covered by the
+full test suite.
 
-### Why PUC Lua is Slower at Number Decoding
+## Verification and invariants
 
-In LuaJIT, bytecode loops over string bytes compile into native CPU machine code
-instructions, making byte-by-byte scanning faster than calling into C runtime
-functions.
+Before accepting a change:
 
-In PUC Lua (5.2–5.5), every bytecode instruction is processed by the software
-interpreter loop (`luaV_execute`). In the current `src/wjson.lua`:
+1. `./run_tests.sh` passes all tests on LuaJIT and Lua 5.2–5.5.
+2. All five decode metrics are present and positive.
+3. The composite metric passes the per-runtime veto gate.
+4. The arena and focused workload remain consistent with the autoresearch result
+   when the change is substantial.
 
-- Lines 746–778: Integer accumulation loop executes `OP_GETTABUP`, `OP_LE`,
-  `OP_GE`, `OP_ADD`, `OP_MUL` in Lua bytecode for every digit.
-- Lines 780–835: When encountering a decimal point `.` or exponent `e`/`E`, the
-  slow path rewinds `pos` to `start_pos` and **re-scans the integer digits from
-  scratch in Lua bytecode**, followed by another loop for decimals and a third
-  loop for exponents.
-- For a dataset like `synthetic-complex-numbers` (3,000 floats/exponents) or
-  `wikipedia-movie-data` (97,000 numbers), this results in hundreds of thousands
-  of unnecessary interpreter opcode dispatches.
-
-### How Competitors Handle This
-
-`dkjson` and `lunajson` achieve significantly faster number decoding on PUC Lua
-by offloading the number scan to a single C call:
-
-- `dkjson`:
-  ```lua
-  local pstart, pend = strfind (str, "^%-?[%d%.]+[eE]?[%+%-]?%d*", pos)
-  local number = str2num (strsub (str, pstart, pend))
-  ```
-  The entire number token boundary is identified in compiled C code inside
-  `lstrlib.c`.
-- `lunajson`: Uses anchored `string.match` regex patterns
-  (`'^([0-9]+%.?[0-9]*)([-+.A-Za-z]?)'`) to capture the number in C before
-  converting with `tonumber`.
-
-### Planned Strategy for Experiment 2
-
-1. **Separate JIT vs. PUC Paths**: Gate `parse_number` behind
-   `if JIT then ... else ... end` so LuaJIT keeps its clean, trace-friendly byte
-   accumulation while PUC Lua can use an optimized pattern scanner.
-2. **C Pattern Number Scanner for PUC Lua**: Use an anchored pattern (e.g.
-   `^%-?%d+%.?%d*[eE]?[%+%-]?%d*`) to locate the number boundary in a single C
-   call.
-3. **Targeted Validation**: Validate JSON constraints on the extracted substring
-   (leading zero check, trailing dot check, exponent digits check) without
-   multi-loop re-scanning.
-4. **Preserve Small Integer Fast Path**: Retain direct integer accumulation for
-   small 1–2 digit integers where pattern matching call overhead would exceed
-   simple byte arithmetic.
-
----
-
-## Historical Context & Prior Sessions
-
-### Integrated Optimizations (Part of Baseline)
-
-- **Conditional String Escaping**: Manual byte scanning for LuaJIT, `str_gsub`
-  for PUC Lua.
-- **Direct Integer Parsing**: Avoid `tonumber(str_sub)` for positive integers.
-- **Extended Integer Cache**: `SMALL_INTS` covering 0–99.
-- **Shared Encode Buffer**: Pre-allocated table for string building in `encode`.
-- **Gated JIT/PUC Paths**: Separated implementations for `parse_array`,
-  `parse_object`, and `encode_value`.
-- **Batch UTF-8 Validation on PUC 5.3+**: Using `utf8.len` for multibyte runs in
-  `parse_string`.
-- **Fused Object Head on PUC**: `str_match('^[ \t\n\r]*"()')` for skipping
-  whitespace and capturing key start.
+The implementation remains pure Lua with no external runtime dependencies.

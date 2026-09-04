@@ -20,7 +20,8 @@ end
 local wjson = json_lib -- Keep variable name for compatibility or refactor; let's refactor to json_lib
 
 local is_luajit = jit ~= nil
-local warmup_iters = is_luajit and 5 or 0
+local warmup_iters = is_luajit and (tonumber(os.getenv("BENCH_WARMUP")) or 5) or 0
+local min_iters = math.max(1, tonumber(os.getenv("BENCH_MIN_ITERS")) or 3)
 
 local function reset_jit_and_gc()
   if is_luajit then
@@ -297,13 +298,14 @@ table.insert(datasets,
   { name = "synthetic-complex-numbers", raw = synthetic_numbers_json, length = #synthetic_numbers_json })
 
 local function run_dataset_benchmarks(ds_list)
-  -- Pre-decode for encode benchmarking
+  -- Decode once up front so the encode benchmark has a representative table.
   for _, ds in ipairs(ds_list) do
     local ok, tbl = pcall(json_lib.decode, ds.raw)
     ds.tbl = ok and tbl or nil
   end
 
-  local max_iters = 0
+  -- Measure each dataset as a contiguous batch. Interleaving datasets while
+  -- flushing LuaJIT leaves large inputs with one cold decode per pass.
   for _, ds in ipairs(ds_list) do
     local base_iters = 20
     if ds.length > 5000000 then    -- Size > ~5MB
@@ -311,47 +313,36 @@ local function run_dataset_benchmarks(ds_list)
     elseif ds.length > 500000 then -- Size > ~500KB
       base_iters = 10
     end
-    ds.iters = math.max(1, math.floor(base_iters * sets / 20))
-    max_iters = math.max(max_iters, ds.iters)
-    ds.e_total = 0
-    ds.d_total = 0
-    ds.done = 0
-  end
 
-  -- Fisher-Yates shuffle helper
-  local function shuffle(t)
-    for i = #t, 2, -1 do
-      local j = math.random(i)
-      t[i], t[j] = t[j], t[i]
-    end
-  end
+    ds.iters = math.max(min_iters, math.floor(base_iters * sets / 20))
 
-  local order = {}
-  for i, _ in ipairs(ds_list) do order[i] = i end
-
-  for pass = 1, max_iters do
-    shuffle(order)
+    -- Flush before warmup, not immediately before the timed section. This
+    -- measures steady-state decoding rather than trace compilation.
     reset_jit_and_gc()
-    for _, idx in ipairs(order) do
-      local ds = ds_list[idx]
-      if ds.done < ds.iters then
-        if ds.tbl then
-          local t0 = os.clock()
-          json_lib.encode(ds.tbl)
-          ds.e_total = ds.e_total + (os.clock() - t0)
-        end
-        local t0 = os.clock()
-        json_lib.decode(ds.raw)
-        ds.d_total = ds.d_total + (os.clock() - t0)
-        ds.done = ds.done + 1
-      end
+    for _ = 1, warmup_iters do
+      json_lib.decode(ds.raw)
     end
-  end
+    if warmup_iters > 0 then
+      collectgarbage("collect")
+    end
 
-  for _, ds in ipairs(ds_list) do
+    local decode_start = os.clock()
+    for _ = 1, ds.iters do
+      json_lib.decode(ds.raw)
+    end
+    ds.d_total = os.clock() - decode_start
+
+    ds.e_total = 0
+    if ds.tbl then
+      local encode_start = os.clock()
+      for _ = 1, ds.iters do
+        json_lib.encode(ds.tbl)
+      end
+      ds.e_total = os.clock() - encode_start
+    end
+
     local avg_e = (ds.e_total / ds.iters) * 1000
     local avg_d = (ds.d_total / ds.iters) * 1000
-
     print(string.format("%-45s | Encode: %6.2f ms | Decode: %6.2f ms", "Dataset: " .. ds.name, avg_e, avg_d))
   end
 end

@@ -723,122 +723,184 @@ parse_string = function(str, pos, len)
   return "Unterminated string at position " .. pos, nil
 end
 
----@param str string
----@param pos integer
----@param len integer
----@return number|string val_or_err, integer|nil pos
-local function parse_number(str, pos, len)
-  local start_pos = pos
-  local b = str_byte(str, pos)
-  local negative = false
+---@type fun(str: string, pos: integer, len: integer, b?: integer): number|string, integer|nil
+local parse_number
 
-  -- Handle optional minus sign
-  if b == BYTE_MINUS then
-    negative = true
-    pos = pos + 1
-    b = str_byte(str, pos)
-  end
+if JIT then
+  parse_number = function(str, pos, len, b)
+    local start_pos = pos
+    b = b or str_byte(str, pos)
+    local negative = false
 
-  if not (b and b >= BYTE_0 and b <= BYTE_9) then
-    return "Invalid number at position " .. start_pos, nil
-  end
-
-  -- Fast path: compute small integers directly from byte values
-  -- Avoids str_sub + tonumber allocation for the common case
-  if b == BYTE_0 then
-    -- Check for leading zero followed by digit (invalid: 01, 023)
-    local after_zero = str_byte(str, pos + 1)
-    if after_zero and after_zero >= BYTE_0 and after_zero <= BYTE_9 then
-      return "Invalid number: leading zero at position " .. start_pos, nil
+    -- Handle optional minus sign
+    if b == BYTE_MINUS then
+      negative = true
+      pos = pos + 1
+      b = str_byte(str, pos)
     end
-    pos = pos + 1
-    -- Check if followed by '.', 'e', 'E' (slow path)
-    local next_b = str_byte(str, pos)
-    if next_b == BYTE_DOT or next_b == BYTE_E or next_b == BYTE_UPPER_E then
-      -- Fall through to slow path
+
+    if not (b and b >= BYTE_0 and b <= BYTE_9) then
+      return "Invalid number at position " .. start_pos, nil
+    end
+
+    -- Fast path: compute small integers directly from byte values
+    -- Avoids str_sub + tonumber allocation for the common case
+    if b == BYTE_0 then
+      -- Check for leading zero followed by digit (invalid: 01, 023)
+      local next_b = str_byte(str, pos + 1)
+      if next_b and next_b >= BYTE_0 and next_b <= BYTE_9 then
+        return "Invalid number: leading zero at position " .. start_pos, nil
+      end
+      pos = pos + 1
+      -- Check if followed by '.', 'e', 'E' (slow path)
+      if next_b == BYTE_DOT or next_b == BYTE_E or next_b == BYTE_UPPER_E then
+        -- Fall through to slow path
+      else
+        return negative and -0 or 0, pos
+      end
     else
-      return negative and -0 or 0, pos
+      -- Non-zero first digit: try to accumulate integer directly
+      local num = b - BYTE_0
+      pos = pos + 1
+      while true do
+        b = str_byte(str, pos)
+        if b and b >= BYTE_0 and b <= BYTE_9 then
+          num = num * 10 + (b - BYTE_0)
+          pos = pos + 1
+        elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
+          break
+        else
+          if negative then num = -num end
+          return num, pos
+        end
+      end
     end
-  else
-    -- Non-zero first digit: try to accumulate integer directly
-    local num = b - BYTE_0
-    pos = pos + 1
-    while pos <= len do
+
+    -- Slow path: handle decimals and exponents via tonumber(str_sub(...))
+    -- Re-scan from start_pos since we need the full string for tonumber
+    pos = start_pos + (negative and 1 or 0)
+    b = str_byte(str, pos)
+    -- Skip digits before decimal/exponent
+    while true do
       b = str_byte(str, pos)
       if b and b >= BYTE_0 and b <= BYTE_9 then
-        num = num * 10 + (b - BYTE_0)
         pos = pos + 1
       elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
         break
       else
-        if negative then num = -num end
-        return num, pos
+        break
       end
     end
-  end
 
-  -- Slow path: handle decimals and exponents via tonumber(str_sub(...))
-  -- Re-scan from start_pos since we need the full string for tonumber
-  pos = start_pos + (negative and 1 or 0)
-  b = str_byte(str, pos)
-  -- Skip digits before decimal/exponent
-  while pos <= len do
-    b = str_byte(str, pos)
-    if b and b >= BYTE_0 and b <= BYTE_9 then
+    -- Check for decimal part
+    if b == BYTE_DOT then
       pos = pos + 1
-    elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
-      break
-    else
-      break
+      local next_b = str_byte(str, pos)
+      if not (next_b and next_b >= BYTE_0 and next_b <= BYTE_9) then
+        return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
+      end
+      while true do
+        b = str_byte(str, pos)
+        if b and b >= BYTE_0 and b <= BYTE_9 then
+          pos = pos + 1
+        elseif b == BYTE_E or b == BYTE_UPPER_E then
+          break
+        else
+          break
+        end
+      end
     end
-  end
 
-  -- Check for decimal part
-  if b == BYTE_DOT then
-    pos = pos + 1
-    local next_b = str_byte(str, pos)
-    if not (next_b and next_b >= BYTE_0 and next_b <= BYTE_9) then
+    -- Check for exponent
+    if b == BYTE_E or b == BYTE_UPPER_E then
+      pos = pos + 1
+      b = str_byte(str, pos)
+      if b == BYTE_PLUS or b == BYTE_MINUS then
+        pos = pos + 1
+        b = str_byte(str, pos)
+      end
+      if not (b and b >= BYTE_0 and b <= BYTE_9) then
+        return "Invalid number: exponent must have digits at position " .. start_pos, nil
+      end
+      while true do
+        b = str_byte(str, pos)
+        if b and b >= BYTE_0 and b <= BYTE_9 then
+          pos = pos + 1
+        else
+          break
+        end
+      end
+    end
+
+    local num_str = str_sub(str, start_pos, pos - 1)
+    local num = tonumber(num_str)
+    if not num then
+      return "Invalid number value at " .. start_pos, nil
+    end
+    return num, pos
+  end
+else
+  parse_number = function(str, pos, len, b)
+    local start_pos = pos
+    b = b or str_byte(str, pos)
+    local negative = false
+
+    if b == BYTE_MINUS then
+      negative = true
+      pos = pos + 1
+      b = str_byte(str, pos)
+    end
+
+    if not (b and b >= BYTE_0 and b <= BYTE_9) then
+      return "Invalid number at position " .. start_pos, nil
+    end
+
+    if b == BYTE_0 then
+      local next_b = str_byte(str, pos + 1)
+      if next_b and next_b >= BYTE_0 and next_b <= BYTE_9 then
+        return "Invalid number: leading zero at position " .. start_pos, nil
+      end
+      pos = pos + 1
+      if next_b ~= BYTE_DOT and next_b ~= BYTE_E and next_b ~= BYTE_UPPER_E then
+        return negative and -0 or 0, pos
+      end
+    else
+      local num = b - BYTE_0
+      pos = pos + 1
+      while true do
+        b = str_byte(str, pos)
+        if b and b >= BYTE_0 and b <= BYTE_9 then
+          num = num * 10 + (b - BYTE_0)
+          pos = pos + 1
+        elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
+          break
+        else
+          if negative then num = -num end
+          return num, pos
+        end
+      end
+    end
+
+    -- Fast C pattern match for floats and exponents on PUC Lua
+    local num_str, next_pos = str_match(str, "^(%-?%d+%.?%d*[eE]?[%+%-]?%d*)()", start_pos)
+    if not num_str then
+      return "Invalid number at position " .. start_pos, nil
+    end
+
+    if str_find(num_str, "%.") and not str_find(num_str, "%.%d") then
       return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
     end
-    while pos <= len do
-      b = str_byte(str, pos)
-      if b and b >= BYTE_0 and b <= BYTE_9 then
-        pos = pos + 1
-      elseif b == BYTE_E or b == BYTE_UPPER_E then
-        break
-      else
-        break
-      end
-    end
-  end
 
-  -- Check for exponent
-  if b == BYTE_E or b == BYTE_UPPER_E then
-    pos = pos + 1
-    b = str_byte(str, pos)
-    if b == BYTE_PLUS or b == BYTE_MINUS then
-      pos = pos + 1
-      b = str_byte(str, pos)
-    end
-    if not (b and b >= BYTE_0 and b <= BYTE_9) then
+    if str_find(num_str, "[eE]") and not str_find(num_str, "[eE][%+%-]?%d") then
       return "Invalid number: exponent must have digits at position " .. start_pos, nil
     end
-    while pos <= len do
-      b = str_byte(str, pos)
-      if b and b >= BYTE_0 and b <= BYTE_9 then
-        pos = pos + 1
-      else
-        break
-      end
-    end
-  end
 
-  local num_str = str_sub(str, start_pos, pos - 1)
-  local num = tonumber(num_str)
-  if not num then
-    return "Invalid number value at " .. start_pos, nil
+    local num = tonumber(num_str)
+    if not num then
+      return "Invalid number value at " .. start_pos, nil
+    end
+    return num, next_pos
   end
-  return num, pos
 end
 
 
@@ -1045,7 +1107,7 @@ decode_value = function(str, pos, depth, len, b)
   elseif b == BYTE_QUOTE then
     return parse_string(str, pos, len)
   elseif (b >= BYTE_0 and b <= BYTE_9) or b == BYTE_MINUS then
-    return parse_number(str, pos, len)
+    return parse_number(str, pos, len, b)
   elseif b == BYTE_LBRACKET then
     return parse_array(str, pos, depth, len)
   elseif b == BYTE_LBRACE then
