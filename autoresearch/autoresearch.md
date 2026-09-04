@@ -1,564 +1,144 @@
-# Autoresearch: Optimize wjson performance
+# Autoresearch: Experiment 2 — Number Parsing via Anchored Regex in PUC Lua
 
 ## Objective
 
-Optimize the performance (encode and decode speed) of the wjson library while
-maintaining correctness and UTF-8 validation. The library is pure Lua and
-targets multiple Lua versions (5.2, 5.3, 5.4) and LuaJIT.
+Optimize JSON number parsing performance in PUC Lua (5.2, 5.3, 5.4, 5.5) using
+anchored pattern matching (`string.find` / `string.match`) to push digit
+scanning from interpreted Lua bytecode into the C runtime, while maintaining
+strict RFC 8259 compliance and ensuring **no regressions on LuaJIT**.
+
+All 5 runtimes must be benchmarked on every iteration:
+
+1. **LuaJIT 2.1**
+2. **PUC Lua 5.2**
+3. **PUC Lua 5.3**
+4. **PUC Lua 5.4**
+5. **PUC Lua 5.5**
+
+The final code must introduce no obvious regressions across any of the 5
+environments, though temporary regressions are permitted during intermediate
+steps if an experiment requires multi-step refactoring.
 
 ## Metrics
 
-- **Primary**: `total_ms` (milliseconds, lower is better) — geometric mean of
-  encode+decode times across all benchmark scenarios (4 synthetic, 4 real
-  datasets) weighted by iteration counts. Computed for LuaJIT only (fastest
-  environment) to keep benchmark fast.
-- **Secondary**: `encode_ms`, `decode_ms` — separate timings for monitoring
-  tradeoffs.
-- **Secondary**: `lua52_total_ms`, `lua53_total_ms`, `lua54_total_ms` — total
-  times for other Lua versions (to ensure no regression across environments).
+- **Primary**: `puc_decode_ms` (milliseconds, lower is better) — total decode
+  time summed across PUC Lua 5.2, 5.3, 5.4, and 5.5.
+- **Target Secondary**: `puc_numbers_ms` (milliseconds, lower is better) —
+  decode time for `synthetic-complex-numbers` summed across PUC Lua 5.2–5.5.
+- **Guard Metrics**:
+  - `luajit_decode_ms`, `luajit_total_ms` — LuaJIT decode and total time (must
+    not regress; LuaJIT must retain its compiled byte-loop or integer
+    fast-paths).
+  - `lua52_decode_ms`, `lua53_decode_ms`, `lua54_decode_ms`, `lua55_decode_ms` —
+    per-runtime decode times to verify consistent improvements across all PUC
+    versions.
 
 ## How to Run
 
-`./autoresearch.sh` — runs the benchmark suite for LuaJIT and outputs structured
-`METRIC` lines.
+```bash
+./autoresearch/autoresearch.sh
+```
+
+This runs:
+
+1. Load check across all 5 environments (`luajit`, `lua52`, `lua53`, `lua54`,
+   `lua55`).
+2. Full test suite validation (`./run_tests.sh` across all 5 environments, 504
+   tests each).
+3. Full benchmark suite across all 5 environments, extracting structured
+   `METRIC` lines.
 
 ## Files in Scope
 
-- `src/wjson.lua` — the main library implementation (can modify any part)
-- `bench/bench.lua` — benchmark script (can be updated to improve measurement or
-  add instrumentation)
-- `autoresearch.sh` — experiment runner (can be updated to adjust metric
-  calculation)
+- `src/wjson.lua` — main library implementation (focus on `parse_number` and
+  PUC-specific decode paths).
+- `bench/bench.lua` — benchmark harness (can add instrumentation or adjust
+  iterations if justified).
+- `autoresearch/autoresearch.sh` — test and benchmark runner.
+- `autoresearch/autoresearch.md` — experiment tracker and documentation.
 
-## Off Limits
+## Off Limits & Invariants
 
-- Do not remove UTF-8 validation (must remain correct).
-- Do not break JSONTestSuite compliance (tests must pass).
-- Do not introduce external dependencies.
+- **Correctness is non-negotiable**:
+  - All 504 tests in `./run_tests.sh` must pass on all 5 engines (`luajit`,
+    `lua52`, `lua53`, `lua54`, `lua55`).
+  - Strict JSON number rules must remain enforced:
+    - No leading zeros (`01`, `007` are invalid).
+    - No bare leading signs without digits (`+1` is invalid in JSON, `-` alone
+      is invalid).
+    - No trailing decimal dots (`1.` is invalid).
+    - Exponents must have digits (`1e`, `1e+` are invalid).
+    - Numbers out of range or malformed must report accurate error messages and
+      positions.
+- **Pure Lua only**: Zero C dependencies or external modules.
+- **Compatibility**: Must support LuaJIT and PUC Lua 5.2 through 5.5.
 
-## Constraints
+## Architectural Analysis: Experiment 2 (Why & How)
 
-- Tests must pass for all Lua versions (luajit, lua52, lua53, lua54). Use
-  `./run_tests.sh`.
-- No new dependencies (pure Lua only).
-- Keep compatibility with Lua 5.2+ and LuaJIT.
+### Why PUC Lua is Slower at Number Decoding
 
-## Baseline (Established 2026-04-16)
+In LuaJIT, bytecode loops over string bytes compile into native CPU machine code
+instructions, making byte-by-byte scanning faster than calling into C runtime
+functions.
 
-New baseline established after modifying `bench/bench.lua` to clear JIT traces,
-randomize dataset order, and include new synthetic benchmarks. Previous
-benchmarks are now obsolete.
+In PUC Lua (5.2–5.5), every bytecode instruction is processed by the software
+interpreter loop (`luaV_execute`). In the current `src/wjson.lua`:
+
+- Lines 746–778: Integer accumulation loop executes `OP_GETTABUP`, `OP_LE`,
+  `OP_GE`, `OP_ADD`, `OP_MUL` in Lua bytecode for every digit.
+- Lines 780–835: When encountering a decimal point `.` or exponent `e`/`E`, the
+  slow path rewinds `pos` to `start_pos` and **re-scans the integer digits from
+  scratch in Lua bytecode**, followed by another loop for decimals and a third
+  loop for exponents.
+- For a dataset like `synthetic-complex-numbers` (3,000 floats/exponents) or
+  `wikipedia-movie-data` (97,000 numbers), this results in hundreds of thousands
+  of unnecessary interpreter opcode dispatches.
+
+### How Competitors Handle This
+
+`dkjson` and `lunajson` achieve significantly faster number decoding on PUC Lua
+by offloading the number scan to a single C call:
+
+- `dkjson`:
+  ```lua
+  local pstart, pend = strfind (str, "^%-?[%d%.]+[eE]?[%+%-]?%d*", pos)
+  local number = str2num (strsub (str, pstart, pend))
+  ```
+  The entire number token boundary is identified in compiled C code inside
+  `lstrlib.c`.
+- `lunajson`: Uses anchored `string.match` regex patterns
+  (`'^([0-9]+%.?[0-9]*)([-+.A-Za-z]?)'`) to capture the number in C before
+  converting with `tonumber`.
+
+### Planned Strategy for Experiment 2
+
+1. **Separate JIT vs. PUC Paths**: Gate `parse_number` behind
+   `if JIT then ... else ... end` so LuaJIT keeps its clean, trace-friendly byte
+   accumulation while PUC Lua can use an optimized pattern scanner.
+2. **C Pattern Number Scanner for PUC Lua**: Use an anchored pattern (e.g.
+   `^%-?%d+%.?%d*[eE]?[%+%-]?%d*`) to locate the number boundary in a single C
+   call.
+3. **Targeted Validation**: Validate JSON constraints on the extracted substring
+   (leading zero check, trailing dot check, exponent digits check) without
+   multi-loop re-scanning.
+4. **Preserve Small Integer Fast Path**: Retain direct integer accumulation for
+   small 1–2 digit integers where pattern matching call overhead would exceed
+   simple byte arithmetic.
+
+---
+
+## Historical Context & Prior Sessions
 
 ### Integrated Optimizations (Part of Baseline)
 
-The following optimizations from previous runs are already integrated into the
-baseline code:
-
-- **Conditional String Escaping**: Use manual byte scanning for LuaJIT and
-  `str_gsub` for PUC Lua (prev Run 3).
-- **Direct Integer Parsing**: Avoid `tonumber(str_sub)` by accumulating integers
-  from bytes (prev Run 4).
-- **Extended Integer Cache**: Extended `SMALL_INTS` from 0-9 to 0-99 (prev Run
-  6).
-- **Shared Encode Buffer**: Use a pre-allocated table for string building in
-  `encode` (prev Run 14).
-- **Shared String Parts Table**: Use a shared table for string parts in
-  `parse_string` to avoid allocations (prev Run 19).
-- **Faster Dispatch**: Moved the number check to the top of `decode_value` (prev
-  Run 21).
-- **Shared Escape Parts Table**: Use a shared table for parts in `escape_string`
-  (prev Run 22).
-- **Inlined UTF-8 Validation**: Inlined branches for 2, 3, and 4-byte UTF-8
-  sequences in `parse_string` (prev Run 23).
-- **Reduced Whitespace Calls**: Optimized `parse_array` and `parse_object` loops
-  to avoid redundant `skip_whitespace` calls (prev Run 33).
-
-## What's Been Tried
-
-### Kept Optimizations
-
-- **Gated JIT/PUC Paths** _(Run 7)_: Separated JIT and PUC implementations for
-  `parse_array`, `parse_object`, and `encode_value`. Improved LuaJIT by **2.4%**
-  by removing branching complexity that inhibited tracing.
-- **Flattened Object Encoder** _(Run 7)_: Handle first key-value pair outside
-  the loop to remove the `first` branch.
-- **Escaped Key Cache** _(Run 6)_: Weak-valued cache for escaped object keys.
-  Gated to **PUC Lua only** as it regressed LuaJIT encoding.
-- **Structural Peeking** _(Run 4)_: Byte peeking for structural characters.
-  Gated to **PUC Lua only** to avoid redundant branching in LuaJIT.
-- **Multi-byte Literal Fetch** _(Run 3)_: Multi-arg `str_byte` for literals and
-  hex digits. **2.3% win**, consistent.
-- **Single-pass Escape String (LuaJIT)** _(Run 2)_: Removed dual-pass scanning.
-  **~8% encode win**.
-
-### Discarded Attempts (Regressions or Noise)
-
-- **Positive Integer Fast-Path (decode_value)**: Removed from `decode_value` to
-  reduce trace root size. LuaJIT performance improved when this was extracted
-  back to `parse_number` (Run 7).
-- **Remove top-level UTF-8 Check**: Discarded as it regressed performance in PUC
-  Lua 5.3+ environments.
-
-## Revisit / Sanity-Check
-
-The following kept optimizations have measured deltas ≤ 3% on the LuaJIT primary
-metric. Since benchmark run-to-run variance can easily be 2-3%, these changes
-may not actually help and should be temporarily reverted (one at a time) to
-verify they carry their weight — especially given that each adds branching
-complexity that can inhibit LuaJIT trace formation.
-
-| Change                                 | LuaJIT Δ                           | Concern                                                                                                                                                                                                                                |
-| -------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Escaped Key Cache** (Run 6)          | +0.08% total (noise), -2.6% encode | Weak table GC pressure + hash lookup per key. LuaJIT encode got _worse_. Net: only helps PUC Lua. Consider making this PUC-Lua-only (behind `not _G.jit`).                                                                             |
-| **Positive Integer Fast-Path** (Run 5) | -0.45% total                       | Within noise. Adds ~20 lines to `decode_value`, which is the hottest trace root. More code in the root trace = more risk of trace abort.                                                                                               |
-| **Structural Peeking** (Run 4)         | +0.12% total (regression!)         | Adds `if/elseif/else` branching to every comma/bracket. Good for PUC Lua, but on LuaJIT the extra branches are redundant since `skip_whitespace` is already a tight loop that LuaJIT traces well. Consider gating behind `not _G.jit`. |
-
-### How to test
-
-Revert one change at a time, run `./autoresearch.sh` at least 3 times, compare
-the median. If the reverted version is within 1% or faster on LuaJIT, remove the
-change (or gate it to PUC Lua).
-
-## Archive: Obsolete Runs (Prior to 2026-04-16 Reset)
-
-<details>
-<summary>View Archived Attempts</summary>
-
-- **Manual escape_string for all Lua versions**: Massive regression in PUC Lua
-  (Run 2).
-- **Move depth check to array/object branches**: Worse performance (Run 5).
-- **Extend SMALL_INTS to 0-999**: Table too large, lookup cost > savings (Run
-  7).
-- **Reorder number encoding (SMALL_INTS before NaN)**: lookup for non-integers
-  was wasteful (Run 8).
-- **Remove clear_buffer from drain_buffer**: No measurable improvement (Run 9).
-- **LuaJIT string.buffer for encode**: `sb:put()` overhead too high for this
-  workload (Run 10).
-- **Combine string writes into single buffer entry**: String concatenation
-  overhead was too high (Run 11).
-- **Split nil/null check**: Extra branch overhead (Run 12).
-- **Peek byte for trailing comma**: Branch overhead > savings (Run 13).
-- **Avoid re-scanning digits in parse_number slow path**: Extra logic complexity
-  hurt LuaJIT (Run 15).
-- **str_find fast-path in escape_string**: Massive regression in LuaJIT (Run
-  16).
-- **str_sub comparison for true/false/null literals**: Manual byte checks were
-  faster (Run 17).
-- **Lookup table for skip_whitespace**: Hash lookup > 4 boolean comparisons (Run
-  18).
-- **4-byte scan in parse_string fast path**: Overhead of multi-byte fetch >
-  savings (Run 20).
-- **Remove redundant byte nil checks in parse_number**: Slight regression/noise
-  (Run 24).
-- **Extend SMALL_INTS to negative integers (-1 to -9)**: Regression/noise (Run
-  25).
-- **Increase initial table sizes to 32**: Overhead for many small objects was
-  too high (Run 26).
-- **Move string check to the very top of decode_value**: Numbers are better
-  first branch (Run 27).
-- **Use band instead of % for UTF-8 math**: Regression/noise (Run 28).
-- **Remove redundant byte fallback in decode_value**: Regression/noise (Run 29).
-- **Inline string key fast path in parse_object**: Code complexity hurt JIT (Run
-  30).
-- **Add tight inner loop for ASCII characters in parse_string slow path**:
-  Regression (Run 31).
-- **Move number check before string check in encode_value**: Massive regression
-  (Run 32).
-- **Single-pass Integer Number Parsing**: Regressed LuaJIT by 1.4% (Run 8).
-- **Nil-fill elimination in shared buffers**: Regressed LuaJIT by 3.4% (Run 8).
-- **Small String Interning Cache (Keys)**: Branching overhead > savings on
-  LuaJIT; regressed PUC Lua by 2.8% (Run 8/9).
-- **Fused Quote Writes in Encoder**: Extra string allocation/concatenation
-  overhead was ~17% slower (Run 9).
-- **Inlined skip_whitespace**: Trace complexity hurt LuaJIT performance by ~4%
-  (Run 9).
-- **Remove top-level utf8.len scan (JIT)**: No measurable win; environment noise
-  masked any potential gain (Run 9).
-
-</details>
-
-## Optimization Ideas
-
-### Status of Previous Tier 1 Ideas
-
-- ✅ **Simplify `decode_value`** — Done in Run 7. Positive-integer fast-path
-  extracted back to `parse_number`.
-- ✅ **Gate PUC-Lua-only optimizations** — Done in Run 7. `parse_array`,
-  `parse_object` now have separate JIT/PUC paths.
-- ✅ **Flatten object encoder loop** — Done in Run 7. First key handled outside
-  loop.
-- ❌ **Nil-fill elimination** — Tried in Run 8, regressed LuaJIT by 3.4%.
-  `tbl_concat` with bounds apparently relies on nil-terminated arrays internally
-  in some cases.
-- ❌ **Fused quote writes** — Tried in Run 9, 17% regression. String
-  concatenation allocation cost exceeds buffer-write savings.
-- ❌ **Skip utf8.len on JIT** — Tried in Run 9, no measurable win. LuaJIT
-  doesn't use utf8.len (it's nil), so this was only relevant for PUC 5.3+.
-
-### Architectural Analysis: Where the Time Goes
-
-**PUC Lua cost model**: The PUC Lua VM dispatches ~20-50ns per opcode. Every
-Lua-level comparison, assignment, function call, and loop iteration is an
-opcode. In contrast, C-implemented functions like `string.find`, `string.gsub`,
-`string.match`, and `tonumber` process bytes at ~1-2ns/byte. The fundamental
-optimization strategy for PUC Lua is: **minimize Lua-level loop iterations by
-pushing work into C functions**.
-
-**Current PUC Lua performance breakdown** (estimated from code structure):
-
-| Component                          | Bottleneck              | Why                                                                                                                              |
-| ---------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `parse_string` fast path           | ✅ Already optimal      | Single `str_find` + `str_sub`                                                                                                    |
-| `parse_string` slow path (escapes) | 🔶 Moderate             | Re-enters `str_find` per chunk, but escape handling is per-character Lua                                                         |
-| `parse_number`                     | 🔴 **Major bottleneck** | 4-5 Lua-level loops scanning byte-by-byte. Every digit = 3-4 opcodes. On a number like `123456`, that's ~24 opcodes vs. 1 C call |
-| `skip_whitespace`                  | ✅ Already optimal      | Single `str_find` call                                                                                                           |
-| `parse_object` / `parse_array`     | 🔶 Moderate             | Structural peeking helps, but each element still requires multiple `str_byte` calls                                              |
-| `encode_value` (strings)           | ✅ Already optimal      | `str_find` + `str_gsub` with ESCAPED_KEY_CACHE                                                                                   |
-| `encode_value` (numbers)           | 🔶 Moderate             | `tostring()` is a C call but allocates a string. SMALL_INTS covers 0-99                                                          |
-| `encode_value` (recursion)         | 🔶 Moderate             | ~8 opcodes per function call setup/teardown in PUC Lua                                                                           |
-
-**Comparison with dkjson** (which is the PUC Lua speed target):
-
-dkjson's `scanstring` uses pattern `'["\\]'` — it only looks for quote and
-backslash, **not** for control characters or UTF-8 bytes. wjson's
-`STRING_PATTERN` is heavier because it also validates control chars and (on Lua
-5.2) high bytes. This is the documented "2x penalty."
-
-dkjson's number parsing uses a **single `strfind` pattern**:
-`"^%-?[%d%.]+[eE]?[%+%-]?%d*"`. This extracts the entire number token in one C
-call, then validates with `tonumber`. wjson's `parse_number` does manual
-byte-by-byte scanning — far more opcodes.
-
-### Tier 1 — High impact PUC Lua ideas
-
-1. **Pattern-based `parse_number` for PUC Lua** ⭐ _Likely biggest remaining PUC
-   Lua win_
-
-   Replace the byte-by-byte integer accumulation and slow-path re-scanning with
-   a two-step approach:
-
-   ```lua
-   -- Step 1: Find number boundary in one C call
-   local _, num_end = str_find(str, '^%-?%d+%.?%d*[eE]?[%+%-]?%d*', pos)
-   -- Step 2: Extract and convert
-   local num_str = str_sub(str, pos, num_end)
-   local num = tonumber(num_str)
-   ```
-
-   Then do targeted validation (leading-zero check, trailing-dot check) on the
-   extracted substring. This replaces 4-5 Lua loops (integer accumulation,
-   slow-path digit skip, decimal scanning, exponent scanning) with **one C-level
-   `str_find`** plus a few validation checks.
-
-   The integer fast-path can still be kept (it avoids `tonumber` + string
-   allocation for small ints), but the _slow path_ should be pattern-driven. The
-   current slow path re-scans from `start_pos` (line 1002) — this is pure waste
-   on PUC Lua where every `str_byte` is an opcode dispatch.
-
-   **Why it should work**: dkjson uses exactly this approach and it's one reason
-   dkjson's number parsing is faster on PUC Lua. The pattern engine in PUC Lua
-   is C code that runs at native speed.
-
-   **Risk**: Pattern matching has overhead for very short numbers (1-2 digits).
-   The integer fast-path should still handle those. Only fall through to
-   pattern-based parsing for `.`/`e`/`E` cases.
-
-2. **Reduce `parse_number` slow-path re-scanning** (simpler variant)
-
-   Even without full pattern-based parsing, the current slow path (lines
-   1000-1061) is wasteful: it re-scans digits it already scanned in the fast
-   path. Instead, when the fast path encounters `.`/`e`/`E`, just continue
-   scanning forward:
-
-   ```lua
-   -- Fast path hit '.' or 'e' at current pos, just keep going:
-   while pos <= len do
-     b = str_byte(str, pos)
-     if (b >= BYTE_0 and b <= BYTE_9) or b == BYTE_DOT
-       or b == BYTE_E or b == BYTE_UPPER_E
-       or b == BYTE_PLUS or b == BYTE_MINUS then
-       pos = pos + 1
-     else break end
-   end
-   return tonumber(str_sub(str, start_pos, pos - 1)), pos
-   ```
-
-   This eliminates the re-scan entirely. Validation is deferred to `tonumber`
-   returning nil for invalid formats. The leading-zero check was already done in
-   the fast path.
-
-3. **PUC Lua `parse_object`: reduce per-entry `str_byte` calls**
-
-   The PUC Lua `parse_object` currently does multiple `str_byte` calls per entry
-   for structural peeking (colon peek, comma peek, brace peek). Each is a C
-   function call with Lua dispatch overhead.
-
-   Consider: after `parse_string` returns the key and position, use `str_find`
-   to skip whitespace AND find the colon in one call:
-
-   ```lua
-   local colon_pos = str_find(str, ':', pos, true)  -- plain search, fast
-   ```
-
-   Similarly, after value parsing, find comma-or-brace with one `str_find`:
-
-   ```lua
-   local next_pos, next_b = str_find(str, '[,}]', pos)
-   -- or for arrays: str_find(str, '[,%]]', pos)
-   ```
-
-   This replaces the peek-then-whitespace-then-check pattern (3+ C calls) with a
-   single C call.
-
-4. **Separate PUC Lua `encode_value` into specialized per-type helpers**
-
-   Currently `encode_value` is a single function with
-   `if t == "string" then ... elseif t == "number" then ...` chains. On PUC Lua,
-   the `type()` call returns a string, and string equality checks are pointer
-   comparisons (since Lua interns all strings). So the dispatch is cheap.
-
-   BUT: the function is long (~150 lines). PUC Lua's register allocator handles
-   shorter functions better. If encode performance matters for PUC Lua, consider
-   splitting the table encoding (array + object branches) into separate
-   functions. This keeps the hot leaf paths (string, number, boolean) in a
-   compact function with fewer local variables competing for registers.
-
-### Tier 2 — Moderate confidence
-
-1. **`tostring` bypass for integers via digit extraction**
-
-   Instead of extending SMALL_INTS (which had lookup overhead for large tables),
-   compute the string representation for positive integers < 10000 using digit
-   extraction:
-
-   ```lua
-   if val >= 0 and val < 10000 and val % 1 == 0 then
-     local d1 = val % 10
-     val = (val - d1) / 10
-     -- ... build string from digits
-   ```
-
-   This avoids both the `tostring` C call (which allocates via `luaL_Buffer`)
-   and the hash table lookup. For PUC Lua this trades ~15 opcodes for the
-   `tostring` C call + string creation overhead. Marginal, but integers 100-9999
-   are extremely common in real JSON.
-
-2. **`string.match` for combined whitespace+structural tokens in PUC Lua
-   decode**
-
-   Instead of `skip_whitespace` + `str_byte` peek, use a single `string.match`:
-
-   ```lua
-   local token = str_match(str, '^[ \n\r\t]*(.)', pos)
-   ```
-
-   This returns the first non-whitespace character in one C call. But:
-   `str_match` allocates a return string, which `skip_whitespace` + `str_byte`
-   doesn't. Test whether the allocation cost < the call overhead savings.
-
-3. **Benchmark methodology: run N≥5 trials and use median** The current
-   benchmark variance makes it hard to distinguish real 1-3% improvements from
-   noise. Running each benchmark 5+ times and using the median (not mean) would
-   dramatically improve confidence.
-
-### Tier 3 — Speculative / already tried
-
-1. **Encode boolean as direct table lookup**: `BOOLS[val]` instead of
-   `val and "true" or "false"`. Marginal.
-
-2. **Small String Interning Cache for Object Keys**: Tried in Run 8/9,
-   discarded. Overhead > savings.
-
-3. **Extended SMALL_INTS to 0-999**: Tried (archived Run 7), lookup cost >
-   savings. The digit-extraction approach (Tier 2 #5) may be better.
-
-### Code Growth vs LuaJIT: Is It a Problem?
-
-The codebase has grown from ~900 lines to 1335 lines. This is **not a concern
-for LuaJIT** because:
-
-- LuaJIT traces execute paths, not functions. Code size doesn't affect trace
-  quality.
-- The JIT/PUC gating means LuaJIT only "sees" the lean JIT paths (~40% of the
-  code).
-- `decode_value` (the hottest trace root) is now 36 lines with 8 branches —
-  clean.
-
-It's also **not a concern for PUC Lua** because:
-
-- PUC Lua interprets bytecodes; source code size doesn't affect execution speed.
-- The additional code is in `if _G.jit` branches that PUC Lua never enters.
-- PUC Lua benefits from expanded code when it replaces expensive abstractions
-  (function calls) with inline logic.
-
-The code _is_ harder to maintain due to duplication, but that's the correct
-trade-off for a performance-critical library.
-
-## Session: Decode-Focused Autoresearch (current, started after the refactor)
-
-### Scope change
-
-This session optimizes **decoding time only** (user request). The primary metric
-is now `decode_ms` = (min of 3 LuaJIT runs + min of 1 Lua 5.4 run) summed across
-all benchmark datasets. The user's manual refactor (merged JIT/PUC paths, 1288
--> 1070 lines) is the baseline; it was preserved as its own commit and session
-work happens in child commits.
-
-### Methodology notes (learned the hard way)
-
-- Single benchmark runs vary ±15% (JIT trace state, dataset order). measure.sh
-  now reports per-dataset minimums over 3 LuaJIT runs (min is robust against
-  JIT/GC outliers). LuaJIT min-of-3 noise: ±1.4%; Lua 5.4 single runs: ±0.3%.
-- Profile with `jit.p` (`require("jit.p").start("10,l")`) + map hot lines with
-  line numbers; check `jit.v` for trace aborts (none found; compilation is
-  clean).
-- Benchmark data facts: wikipedia-movie-data is pretty-printed (5.8MB
-  whitespace, 22% of input), 640k strings averaging 30 chars, 110k tables, 97k
-  numbers. ~98.5% of strings take the parse_string fast path (only 8.3k
-  backslashes, 14k high bytes). historical-events-tr is 753KB with 25.7k \u
-  escapes.
-- wjson decode already beats dkjson ~2x on LuaJIT and ~1.2x on Lua 5.4 for the
-  real datasets. Remaining wins are small; avoid regression-chasing noise.
-
-### What's been tried this session
-
-| Change                                              | Result             | Notes                                                                                                                                                 |
-| --------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| STRING_PATTERN find for JIT find_string_boundary    | **+30% decode**    | C pattern scan per byte loses badly to the compiled byte loop on LuaJIT.                                                                              |
-| Shared scratch parts table in parse_string          | neutral            | Restoring the pre-refactor "Run 19" optimization: 250.45 vs 251.43 min-of-3. Simplicity wins; discarded.                                              |
-| Lazy parts table (only on first backslash)          | neutral on LuaJIT  | Kept (in current best); slightly simpler allocation behavior for UTF-8-only strings.                                                                  |
-| String-first dispatch in decode_value               | **-1.7% combined** | KEPT. Strings are 75% of wiki values; saves ~2 compares per string on PUC opcodes. Old notes' Run 27 (number-first) was for the encode+decode metric. |
-| str_byte peek before pattern in PUC skip_whitespace | **+3.2% lua54**    | Data is pretty-printed: whitespace almost always present, so the extra str_byte is pure overhead.                                                     |
-| Fused ws+separator str_match for PUC parsers        | +1.6% lua54        | One anchored pattern call does not beat str_byte peek + str_find skip on 5.4.                                                                         |
-| Decision-tree compare reorder in JIT boundary loop  | **+18% LuaJIT**    | Nested branches damage the hottest trace. Flat 4-compare chain is optimal.                                                                            |
-
-### Architectural insights so far
-
-- **LuaJIT**: compiled byte loops beat C pattern calls for the string-scan
-  workload (strings average 30 chars). The hot loop (find_string_boundary) and
-  skip_whitespace traces are fragile: restructuring branches regresses 15-20%.
-- **PUC**: already near the C-call floor. Per pair the parser does ~10-14 C
-  calls; each fusion attempt either washes or regresses because pattern-call
-  setup on 5.4 costs about as much as 2-3 str_byte calls.
-- Allocation counts per wiki decode: ~1.4M objects (640k result strings, 640k
-  interned keys, 110k tables). This is inherent to producing the output.
-
-### Dispatch-order tradeoff (measured across all 4 environments)
-
-String-first dispatch in `decode_value` (kept, current best) vs number-first:
-
-| Env               | decode sum       | delta                      |
-| ----------------- | ---------------- | -------------------------- |
-| LuaJIT (min-of-3) | 247.29 vs ~258   | **-4%**                    |
-| Lua 5.4           | 659.15 vs 664.28 | -0.8%                      |
-| Lua 5.3           | 789.88 vs 804.05 | -1.8%                      |
-| Lua 5.2           | ~858 vs ~840     | **+2-3%** (wiki/hist only) |
-
-Net across all versions is roughly neutral, but the primary metric (LuaJIT + Lua
-5.4) improves and 3 of 4 environments benefit. If Lua 5.2 decode matters more
-than the others, revert to number-first order (single hunk in `decode_value`).
-
-### Final LuaJIT profile of current best (wikipedia-movie-data)
-
-- 43% skip_whitespace/separator scan in parse_object (inlined; 5.8MB of
-  pretty-printed whitespace + 640k separator checks)
-- 33% table allocations (110k tab_new + amortized GC)
-- 10% str_sub for clean-string returns
-- 10% parse_string boundary loop + slow-path chunks
-
-All four items are inherent result-production work (output tables, output and
-key strings, input scanning). Byte-loop scans beat C pattern calls on LuaJIT for
-this data (strings average 30 chars); PUC is at the C-call floor (every attempt
-to reduce C calls via captures/fusion regressed 2-10%). Remaining
-
-> 10% wins likely require FFI-based scanning (LuaJIT only; conflicts with the
-> pure-Lua constraint) or a C implementation.
-
-### Batch UTF-8 validation on PUC 5.3+ (kept, biggest win of the session)
-
-`parse_string`'s slow path previously validated each high byte with a
-`validate_utf8_at` call plus a `find_string_boundary` restart per character. On
-Lua 5.3+ the whole multibyte run is now validated with ONE `utf8.len` call: an
-anchored `str_find` for the next special byte that is NOT a valid multibyte
-start ('["\\\1-\31%z\245-\255]') bounds the span, `utf8.len` validates it in C,
-and any rejection falls back to per-character validation for exact error
-messages.
-
-Result: combined decode 906.44 -> 877.04 (session total: 922.27 -> 877.04,
--4.9%). Lua 5.4 decode -5.7%; the multibyte-heavy synthetic long-string datasets
-improved 26% (Shallow Wide Long 46.1 -> 34.0 on 5.4). LuaJIT and Lua 5.2 are
-untouched (no `utf8` library there).
-
-Two correctness traps found by the test suite (run tests FIRST):
-
-1. **Lua 5.3's `utf8.len` accepts surrogate encodings** (ED A0-BF); 5.4's is
-   strict. Caught by 2 busted failures. Fix: a load-time self-test
-   (`utf8_len("\xED\xA0\x80")`) disarms the batch path if lenient.
-2. **`utf8.len` accepts F5-F7 starts** (out-of-Unicode-range values up to
-   0x1FFFFF) which strict UTF-8 rejects. Fix: the span-stop class includes
-   \245-\255, so those bytes always reach strict per-character validation.
-
-Follow-up iteration extended the win to Lua 5.3: when the self-test detects a
-surrogate-lenient `utf8.len`, the span-stop class additionally stops at ED
-(`\237`), so ED-lead sequences always use strict per-character validation. Lua
-5.3 decode sum 789.88 -> 772.89 (-2.1%). Valid ED-lead text (U+D000-D7FF, e.g.
-Hangul) is verified accepted on all four environments.
-
-### State at end of this phase
-
-Per-dataset decode on the best tree: wiki 475.9 (lua54) / 165.8 (LuaJIT),
-deep-nested-long 76.0 / 49.4, shallow-long 35.1 / 22.4, hist 26.1 / 11.0.
-Remaining time is allocations+GC, whitespace/separator scanning, and string
-slicing - all inherent. The only >10% lever identified is FFI-based scanning on
-LuaJIT (parked; conflicts with the pure-Lua constraint).
-
-### Fused object head on PUC (kept)
-
-The PUC `parse_object` loop head now uses one `str_match('^[ \t\n\r]*"()')` call
-to skip whitespace, verify the key quote, and capture the key content start
-(replacing `skip_whitespace`'s find+byte pair per key-value pair).
-Trailing-comma detection moved into the head via an `after_comma` flag +
-separate closing-brace match, preserving exact error messages and positions.
-
-Result: 877.04 -> 865.13 (-1.4%, lua54 -1.5%). Session cumulative: 922.27 ->
-865.13 (-6.2%).
-
-### Benchmark harness forensics (important context)
-
-The wikipedia benchmark number (~166ms on LuaJIT) is dominated by GC behavior
-from the harness structure, not decode logic: bench.lua pre-decodes ALL datasets
-and holds them live (`ds.tbl`) while runs are interleaved (encode+decode per
-dataset per pass, jit.flush+full GC once per pass). Measured: hot decode
-62-72ms/decode; GC stopped 62ms; wiki-only in-situ decodes are BIMODAL
-(161-168ms vs 448-464ms runs). Encodes are not the cause (disabled encodes:
-still ~150ms). Consequence: do NOT tune against the harness's GC state (e.g. no
-global GC mode/step changes - they would be cheating and bad library
-citizenship); only allocation reductions in decode itself are legitimate.
-min-of-3 methodology picks the GC-favorable mode, consistent across candidates.
-
-Also confirmed: multi-return `str_byte(str, i, i+1)` is a C call on LuaJIT (not
-compiled) - this explains the old Run 20 4-byte-fetch failure; compiled
-single-byte loops remain unbeatable for scanning.
-
-### Full PUC char-dispatch redesign (discarded, neutral)
-
-Tried extending the head-fusion idea to the whole pair path: a PUC-only
-`decode_value_char` dispatching on the captured 1-char value string, letting the
-colon+value-start and the separator each become one fused `str_match` call
-(removing the loop's dependency on the numeric byte `b`). Measured neutral
-(866/884 repeat vs 865.13): the double-ws-loop colon match costs more than the
-plain calls it replaces, and the design added ~50 lines of duplicated dispatch.
-Reverted.
-
-Two pitfalls now documented for any future `str_match` work:
-
-1. `str_match` returns CAPTURES ONLY - a single `()` capture returns just the
-   position. To get position AND character, use two captures (`'...()(.)'`) or
-   `str_find` with a capture group.
-2. Forgetting that silently breaks error paths (observed: control chars and
-   multi-pair objects mis-parsed) - the 504-test suite catches it, so always run
-   tests before benchmarking a parser change.
-
-The PUC call-fusion direction is exhausted at the kept head fusion. Remaining
-ideas are parked pending user decisions (FFI for LuaJIT; skipping `setmetatable`
-for non-empty decoded arrays).
+- **Conditional String Escaping**: Manual byte scanning for LuaJIT, `str_gsub`
+  for PUC Lua.
+- **Direct Integer Parsing**: Avoid `tonumber(str_sub)` for positive integers.
+- **Extended Integer Cache**: `SMALL_INTS` covering 0–99.
+- **Shared Encode Buffer**: Pre-allocated table for string building in `encode`.
+- **Gated JIT/PUC Paths**: Separated implementations for `parse_array`,
+  `parse_object`, and `encode_value`.
+- **Batch UTF-8 Validation on PUC 5.3+**: Using `utf8.len` for multibyte runs in
+  `parse_string`.
+- **Fused Object Head on PUC**: `str_match('^[ \t\n\r]*"()')` for skipping
+  whitespace and capturing key start.

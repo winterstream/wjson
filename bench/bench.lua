@@ -179,12 +179,12 @@ if jit then
 else
   print("VM: Lua " .. _VERSION)
 end
-print("Running benchmarks (20 data sets per type)...")
-print("=========================================================================")
+local sets = tonumber(os.getenv("BENCH_SETS")) or 20
+local iters_per_set = tonumber(os.getenv("BENCH_ITERS")) or 20
+local iters_per_big_set = math.max(1, math.floor(iters_per_set / 2))
 
-local sets = 20
-local iters_per_set = 20
-local iters_per_big_set = 10
+print(string.format("Running benchmarks (%d data sets per type)...", sets))
+print("=========================================================================")
 
 run_benchmark("Shallow Wide (Short Strings, 200 fields)", function()
   return generate_shallow_wide(32, 256)
@@ -305,13 +305,13 @@ local function run_dataset_benchmarks(ds_list)
 
   local max_iters = 0
   for _, ds in ipairs(ds_list) do
+    local base_iters = 20
     if ds.length > 5000000 then    -- Size > ~5MB
-      ds.iters = 5
+      base_iters = 5
     elseif ds.length > 500000 then -- Size > ~500KB
-      ds.iters = 10
-    else
-      ds.iters = 20
+      base_iters = 10
     end
+    ds.iters = math.max(1, math.floor(base_iters * sets / 20))
     max_iters = math.max(max_iters, ds.iters)
     ds.e_total = 0
     ds.d_total = 0
