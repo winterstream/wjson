@@ -934,7 +934,7 @@ if JIT then
     local n = 0
     pos = pos + 1 -- skip [
 
-    local b, new_pos
+    local b
     pos, b = skip_whitespace(str, pos)
     while b ~= BYTE_RBRACKET do
       local val, npos = decode_value(str, pos, depth + 1, len, b)
@@ -962,7 +962,7 @@ if JIT then
     local obj = tab_new(0, 8)
     pos = pos + 1 -- skip {
 
-    local b, new_pos
+    local b
     pos, b = skip_whitespace(str, pos)
     while b ~= BYTE_RBRACE do
       if b ~= BYTE_QUOTE then
