@@ -516,7 +516,7 @@ else
 end
 
 
-local function validate_utf8_at(str, i, len, b)
+local function validate_utf8_at(str, i, b)
   if b < BYTE_SPACE then
     return nil, "Unescaped control character at position " .. i
   end
@@ -724,7 +724,7 @@ parse_string = function(str, pos, len)
       end
       if not skip_validate then
         local err
-        i, err = validate_utf8_at(str, i, len, b)
+        i, err = validate_utf8_at(str, i, b)
         if err then
           if parts then clear_parts(parts, parts_len) end
           return err, nil
