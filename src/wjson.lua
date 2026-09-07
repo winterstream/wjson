@@ -984,12 +984,16 @@ if JIT then
       local key, npos = parse_string(str, pos, len)
       if not npos or not key then return key, nil end
       pos = npos
-
-      pos, b = skip_whitespace(str, pos)
-      if b ~= BYTE_COLON then
-        return "Expected : after key at " .. pos, nil
+      b = str_byte(str, pos)
+      if b == BYTE_COLON then
+        pos = pos + 1
+      else
+        pos, b = skip_whitespace(str, pos)
+        if b ~= BYTE_COLON then
+          return "Expected : after key at " .. pos, nil
+        end
+        pos = pos + 1
       end
-      pos = pos + 1
 
       pos, b = skip_whitespace(str, pos)
       local val, val_pos = decode_value(str, pos, depth + 1, len, b)
