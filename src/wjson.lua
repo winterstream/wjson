@@ -1001,8 +1001,6 @@ if JIT then
 else
   parse_array = function(str, pos, depth, len, skip_numeric_fast)
     local array_pos = pos
-    local arr = tab_new(8, 0)
-    local n = 0
     pos = pos + 1 -- skip [
 
     local b
@@ -1041,6 +1039,9 @@ else
         end
       end
     end
+
+    local arr = tab_new(8, 0)
+    local n = 0
 
     while b ~= BYTE_RBRACKET do
       local val, new_pos = decode_value(str, pos, depth + 1, len, b)
