@@ -471,7 +471,7 @@ local NON_HIGH_SPECIAL = '["\\\1-\31%z\245-\255]'
 -- and capture the key content start in one pattern call.
 local HEAD_KEY_POS               = '^[ \t\n\r]*"()'
 local HEAD_RBRACE_POS            = '^[ \t\n\r]*()}'
-local FUSED_KEY_COLON            = '^[ \t\n\r]*"([^"\\\1-\31%z\128-\255]*)"[ \t\n\r]*:()'
+local FUSED_KEY_COLON            = '^[ \t\n\r]*"([^"\\\1-\31%z\128-\255]*)"[ \t\n\r]*:[ \t\n\r]*()'
 local SIMPLE_STRING_PATTERN      = '^([^"\\\1-\31%z\128-\255]*)"()'
 
 local utf8_len = utf8 and utf8.len
@@ -1089,6 +1089,8 @@ else
       local key, new_pos = str_match(str, FUSED_KEY_COLON, pos)
       if key then
         pos = new_pos
+        -- FUSED_KEY_COLON already consumed all following whitespace.
+        b = str_byte(str, pos)
       else
         local kstart = str_match(str, HEAD_KEY_POS, pos)
         if not kstart then
@@ -1116,11 +1118,10 @@ else
           pos = pos + 1
         end
         key = k
+        pos, b = skip_whitespace(str, pos)
       end
 
-      -- Value
-      -- skip whitespace / peek value
-      pos, b = skip_whitespace(str, pos)
+      -- Value; the key parser already positioned b at the value start.
       local val, val_pos = decode_value(str, pos, depth + 1, len, b)
       if not val_pos then return val, nil end
       pos = val_pos
