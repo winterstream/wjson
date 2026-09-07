@@ -740,6 +740,26 @@ parse_string = function(str, pos, len)
   return "Unterminated string at position " .. pos, nil
 end
 
+if JIT then
+  local parse_string_slow = parse_string
+  parse_string = function(str, pos, len)
+    local start = pos + 1
+    local i = start
+    while i <= len do
+      local b = str_byte(str, i)
+      if b == BYTE_QUOTE then
+        return str_sub(str, start, i - 1), i + 1
+      end
+      if b == BYTE_BACKSLASH or b < BYTE_SPACE or b >= UTF8_1BYTE_LIMIT then
+        return parse_string_slow(str, pos, len)
+      end
+      i = i + 1
+    end
+    return "Unterminated string at position " .. pos, nil
+  end
+end
+
+
 -- PUC Lua can capture a clean ASCII string and its closing position in one C
 -- pattern call. Keep LuaJIT on its byte-scanning implementation.
 if not JIT then
