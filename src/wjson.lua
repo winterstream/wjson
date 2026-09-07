@@ -985,13 +985,49 @@ if JIT then
     return obj, pos + 1
   end
 else
-  parse_array = function(str, pos, depth, len)
+  parse_array = function(str, pos, depth, len, skip_numeric_fast)
+    local array_pos = pos
     local arr = tab_new(8, 0)
     local n = 0
     pos = pos + 1 -- skip [
 
     local b
     pos, b = skip_whitespace(str, pos)
+
+    -- Numeric arrays are common in the control workloads. Keep this branch at
+    -- array entry so string/object arrays pay one check, not one per element.
+    if not skip_numeric_fast and (b == BYTE_MINUS or (b and b >= BYTE_0 and b <= BYTE_9)) then
+      local fast_arr = tab_new(8, 0)
+      local fast_n = 0
+      local fast_pos = pos
+      local fast_b = b
+
+      while true do
+        if not (fast_b == BYTE_MINUS or (fast_b and fast_b >= BYTE_0 and fast_b <= BYTE_9)) then
+          return parse_array(str, array_pos, depth, len, true)
+        end
+
+        local val, new_pos = parse_number(str, fast_pos, len, fast_b)
+        if not new_pos then return val, nil end
+        fast_n = fast_n + 1
+        fast_arr[fast_n] = val
+        fast_pos, fast_b = skip_whitespace(str, new_pos)
+
+        if fast_b == BYTE_RBRACKET then
+          return setmetatable(fast_arr, array_mt), fast_pos + 1
+        end
+        if fast_b ~= BYTE_COMMA then
+          return parse_array(str, array_pos, depth, len, true)
+        end
+
+        local comma_pos = fast_pos
+        fast_pos, fast_b = skip_whitespace(str, fast_pos + 1)
+        if fast_b == BYTE_RBRACKET then
+          return "Trailing comma in array at " .. comma_pos, nil
+        end
+      end
+    end
+
     while b ~= BYTE_RBRACKET do
       local val, new_pos = decode_value(str, pos, depth + 1, len, b)
       if not new_pos then return val, nil end
