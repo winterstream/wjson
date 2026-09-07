@@ -974,6 +974,8 @@ if JIT then
       local val, npos
       if b == BYTE_QUOTE then
         val, npos = parse_string(str, pos, len)
+      elseif b == BYTE_MINUS or (b and b >= BYTE_0 and b <= BYTE_9) then
+        val, npos = parse_number(str, pos, b)
       else
         val, npos = decode_value(str, pos, depth + 1, len, b)
       end
