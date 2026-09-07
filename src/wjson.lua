@@ -1157,7 +1157,6 @@ end
 decode_value = function(str, pos, depth, len, b)
   if depth > MAX_DECODE_DEPTH then return "JSON recursion depth limit exceeded", nil end
 
-  b = b or str_byte(str, pos)
   if not b then
     return "Unexpected EOF", nil
   elseif b == BYTE_QUOTE then
