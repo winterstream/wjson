@@ -741,13 +741,12 @@ if not JIT then
   end
 end
 
----@type fun(str: string, pos: integer, b?: integer): number|string, integer|nil
+---@type fun(str: string, pos: integer, b: integer): number|string, integer|nil
 local parse_number
 
 if JIT then
   parse_number = function(str, pos, b)
     local start_pos = pos
-    b = b or str_byte(str, pos)
     local negative = false
 
     -- Handle optional minus sign
@@ -860,7 +859,6 @@ if JIT then
 else
   parse_number = function(str, pos, b)
     local start_pos = pos
-    b = b or str_byte(str, pos)
     local negative = false
 
     if b == BYTE_MINUS then
