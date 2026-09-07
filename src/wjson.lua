@@ -971,6 +971,22 @@ if JIT then
     return setmetatable(arr, array_mt), pos + 1
   end
 
+  local parse_key = function(str, pos, len)
+    local start = pos + 1
+    local i = start
+    while i <= len do
+      local b = str_byte(str, i)
+      if b == BYTE_QUOTE then
+        return str_sub(str, start, i - 1), i + 1
+      end
+      if b == BYTE_BACKSLASH or b < BYTE_SPACE or b >= UTF8_1BYTE_LIMIT then
+        return parse_string(str, pos, len)
+      end
+      i = i + 1
+    end
+    return "Unterminated string at position " .. pos, nil
+  end
+
   parse_object = function(str, pos, depth, len)
     local obj = tab_new(0, 8)
     pos = pos + 1 -- skip {
@@ -981,7 +997,7 @@ if JIT then
       if b ~= BYTE_QUOTE then
         return "Expected string key for object at " .. (pos or "?"), nil
       end
-      local key, npos = parse_string(str, pos, len)
+      local key, npos = parse_key(str, pos, len)
       if not npos or not key then return key, nil end
       pos = npos
       b = str_byte(str, pos)
