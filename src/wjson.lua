@@ -505,6 +505,7 @@ local FUSED_KEY_COLON            = '^[ \t\n\r]*"([^"\\\1-\31%z\128-\255]*)"[ \t\
 local SIMPLE_STRING_PATTERN      = '^([^"\\\1-\31%z\128-\255]*)"()'
 
 local utf8_len = utf8 and utf8.len
+local utf8_char = utf8 and utf8.char
 -- Lua 5.3's utf8.len accepts surrogate encodings (ED A0-BF). When we detect
 -- that leniency, spans also stop at ED (surrogate lead byte) so ED sequences
 -- always go through strict per-character validation instead.
@@ -634,6 +635,8 @@ local function decode_unicode_escape(str, i, parts, parts_len)
   parts_len = parts_len + 1
   if code < UTF8_1BYTE_LIMIT then
     parts[parts_len] = str_char(code)
+  elseif utf8_char then
+    parts[parts_len] = utf8_char(code)
   elseif code < UTF8_2BYTE_LIMIT then
     parts[parts_len] = str_char(
       UTF8_2BYTE_MARK + rshift(code, 6),
