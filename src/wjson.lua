@@ -666,7 +666,11 @@ parse_string = function(str, pos, len)
 
     if b == BYTE_BACKSLASH then
       if not parts then
-        parts = tab_new(DEFAULT_PARTS_CAPACITY, 0)
+        if JIT then
+          parts = tab_new(DEFAULT_PARTS_CAPACITY, 0)
+        else
+          parts = {}
+        end
       end
       if chunk_start < i then
         parts_len = parts_len + 1
