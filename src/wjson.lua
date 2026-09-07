@@ -449,7 +449,14 @@ local function drain_buffer(buffer, buf_len)
 end
 
 local function encode(val, buffer)
-  local buf = buffer or tab_new(DEFAULT_ENCODE_BUF_CAP, 0)
+  local buf
+  if buffer then
+    buf = buffer
+  elseif JIT then
+    buf = tab_new(DEFAULT_ENCODE_BUF_CAP, 0)
+  else
+    buf = {}
+  end
   local buf_len, err = encode_value(val, buf, 0, {})
   if err then
     clear_buffer(buf, buf_len)
