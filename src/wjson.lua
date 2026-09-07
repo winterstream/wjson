@@ -659,7 +659,6 @@ parse_string = function(str, pos, len)
         return "", i + 1
       end
       local result = tbl_concat(parts, "", 1, parts_len)
-      clear_parts(parts, parts_len)
       return result, i + 1
     end
 
