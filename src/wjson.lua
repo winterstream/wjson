@@ -557,17 +557,6 @@ local function validate_utf8_at(str, i, len, b)
   return i + 4
 end
 
-local function decode_hex_quad(str, pos)
-  local b1, b2, b3, b4 = str_byte(str, pos, pos + 3)
-  local h1 = HEX_VALUES[b1]
-  local h2 = HEX_VALUES[b2]
-  local h3 = HEX_VALUES[b3]
-  local h4 = HEX_VALUES[b4]
-  if h1 == nil or h2 == nil or h3 == nil or h4 == nil then
-    return nil
-  end
-  return h1 * HEX_WEIGHT_NIBBLE_4 + h2 * HEX_WEIGHT_NIBBLE_3 + h3 * HEX_WEIGHT_NIBBLE_2 + h4
-end
 
 local function append_codepoint_utf8(parts, parts_len, code)
   parts_len = parts_len + 1
@@ -596,10 +585,15 @@ local function append_codepoint_utf8(parts, parts_len, code)
 end
 
 local function decode_unicode_escape(str, i, parts, parts_len)
-  local code = decode_hex_quad(str, i + 1)
-  if code == nil then
+  local b1, b2, b3, b4 = str_byte(str, i + 1, i + 4)
+  local h1 = HEX_VALUES[b1]
+  local h2 = HEX_VALUES[b2]
+  local h3 = HEX_VALUES[b3]
+  local h4 = HEX_VALUES[b4]
+  if h1 == nil or h2 == nil or h3 == nil or h4 == nil then
     return parts_len, nil, "Invalid unicode escape at " .. i
   end
+  local code = h1 * HEX_WEIGHT_NIBBLE_4 + h2 * HEX_WEIGHT_NIBBLE_3 + h3 * HEX_WEIGHT_NIBBLE_2 + h4
 
   if code < UNICODE_SURROGATE_HIGH_MIN or code > UNICODE_SURROGATE_LOW_MAX then
     return append_codepoint_utf8(parts, parts_len, code), i + 4
@@ -612,8 +606,16 @@ local function decode_unicode_escape(str, i, parts, parts_len)
     return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
   end
 
-  local low_code = decode_hex_quad(str, i + 7)
-  if low_code == nil or low_code < UNICODE_SURROGATE_LOW_MIN or low_code > UNICODE_SURROGATE_LOW_MAX then
+  b1, b2, b3, b4 = str_byte(str, i + 7, i + 10)
+  h1 = HEX_VALUES[b1]
+  h2 = HEX_VALUES[b2]
+  h3 = HEX_VALUES[b3]
+  h4 = HEX_VALUES[b4]
+  if h1 == nil or h2 == nil or h3 == nil or h4 == nil then
+    return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
+  end
+  local low_code = h1 * HEX_WEIGHT_NIBBLE_4 + h2 * HEX_WEIGHT_NIBBLE_3 + h3 * HEX_WEIGHT_NIBBLE_2 + h4
+  if low_code < UNICODE_SURROGATE_LOW_MIN or low_code > UNICODE_SURROGATE_LOW_MAX then
     return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
   end
 
