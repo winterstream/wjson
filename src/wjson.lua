@@ -178,6 +178,7 @@ else
 end
 
 ---@type fun(str: string, pos: integer): integer, integer?
+local WHITESPACE_POS_PATTERN = '[ \n\r\t]*()'
 local skip_whitespace
 if JIT then
   skip_whitespace = function(str, pos)
@@ -190,11 +191,8 @@ if JIT then
   end
 else
   skip_whitespace = function(str, pos)
-    local new_pos = str_find(str, '[^ \n\r\t]', pos)
-    if new_pos then
-      return new_pos, str_byte(str, new_pos)
-    end
-    return #str + 1, nil
+    local new_pos = str_match(str, WHITESPACE_POS_PATTERN, pos) or pos
+    return new_pos, str_byte(str, new_pos)
   end
 end
 
