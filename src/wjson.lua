@@ -995,7 +995,10 @@ if JIT then
         pos = pos + 1
       end
 
-      pos, b = skip_whitespace(str, pos)
+      b = str_byte(str, pos)
+      if b == BYTE_SPACE or b == BYTE_LF or b == BYTE_CR or b == BYTE_TAB then
+        pos, b = skip_whitespace(str, pos)
+      end
       local val, val_pos = decode_value(str, pos, depth + 1, len, b)
       if not val_pos then return val, nil end
       pos = val_pos
