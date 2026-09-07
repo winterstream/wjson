@@ -472,6 +472,7 @@ local NON_HIGH_SPECIAL = '["\\\1-\31%z\245-\255]'
 local HEAD_KEY_POS               = '^[ \t\n\r]*"()'
 local HEAD_RBRACE_POS            = '^[ \t\n\r]*()}'
 local FUSED_KEY_COLON            = '^[ \t\n\r]*"([^"\\\1-\31%z\128-\255]*)"[ \t\n\r]*:()'
+local SIMPLE_STRING_PATTERN      = '^([^"\\\1-\31%z\128-\255]*)"()'
 
 local utf8_len = utf8 and utf8.len
 -- Lua 5.3's utf8.len accepts surrogate encodings (ED A0-BF). When we detect
@@ -725,6 +726,19 @@ parse_string = function(str, pos, len)
 
   if parts then clear_parts(parts, parts_len) end
   return "Unterminated string at position " .. pos, nil
+end
+
+-- PUC Lua can capture a clean ASCII string and its closing position in one C
+-- pattern call. Keep LuaJIT on its byte-scanning implementation.
+if not JIT then
+  local parse_string_slow = parse_string
+  parse_string = function(str, pos, len)
+    local value, next_pos = str_match(str, SIMPLE_STRING_PATTERN, pos + 1)
+    if next_pos then
+      return value, next_pos
+    end
+    return parse_string_slow(str, pos, len)
+  end
 end
 
 ---@type fun(str: string, pos: integer, len: integer, b?: integer): number|string, integer|nil
