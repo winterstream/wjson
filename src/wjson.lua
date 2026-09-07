@@ -558,7 +558,48 @@ local function validate_utf8_at(str, i, len, b)
 end
 
 
-local function append_codepoint_utf8(parts, parts_len, code)
+
+local function decode_unicode_escape(str, i, parts, parts_len)
+  local b1, b2, b3, b4 = str_byte(str, i + 1, i + 4)
+  local h1 = HEX_VALUES[b1]
+  local h2 = HEX_VALUES[b2]
+  local h3 = HEX_VALUES[b3]
+  local h4 = HEX_VALUES[b4]
+  if h1 == nil or h2 == nil or h3 == nil or h4 == nil then
+    return parts_len, nil, "Invalid unicode escape at " .. i
+  end
+  local code = h1 * HEX_WEIGHT_NIBBLE_4 + h2 * HEX_WEIGHT_NIBBLE_3 + h3 * HEX_WEIGHT_NIBBLE_2 + h4
+  local next_pos
+
+  if code < UNICODE_SURROGATE_HIGH_MIN or code > UNICODE_SURROGATE_LOW_MAX then
+    next_pos = i + 4
+  else
+    if code > UNICODE_SURROGATE_HIGH_MAX then
+      return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
+    end
+    if str_byte(str, i + 5) ~= BYTE_BACKSLASH or str_byte(str, i + 6) ~= BYTE_U then
+      return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
+    end
+
+    b1, b2, b3, b4 = str_byte(str, i + 7, i + 10)
+    h1 = HEX_VALUES[b1]
+    h2 = HEX_VALUES[b2]
+    h3 = HEX_VALUES[b3]
+    h4 = HEX_VALUES[b4]
+    if h1 == nil or h2 == nil or h3 == nil or h4 == nil then
+      return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
+    end
+    local low_code = h1 * HEX_WEIGHT_NIBBLE_4 + h2 * HEX_WEIGHT_NIBBLE_3 + h3 * HEX_WEIGHT_NIBBLE_2 + h4
+    if low_code < UNICODE_SURROGATE_LOW_MIN or low_code > UNICODE_SURROGATE_LOW_MAX then
+      return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
+    end
+
+    code = UTF8_3BYTE_LIMIT
+      + ((code - UNICODE_SURROGATE_HIGH_MIN) * 1024)
+      + (low_code - UNICODE_SURROGATE_LOW_MIN)
+    next_pos = i + 10
+  end
+
   parts_len = parts_len + 1
   if code < UTF8_1BYTE_LIMIT then
     parts[parts_len] = str_char(code)
@@ -581,48 +622,7 @@ local function append_codepoint_utf8(parts, parts_len, code)
       UTF8_CONTINUATION_MARK + band(code, 0x3F)
     )
   end
-  return parts_len
-end
-
-local function decode_unicode_escape(str, i, parts, parts_len)
-  local b1, b2, b3, b4 = str_byte(str, i + 1, i + 4)
-  local h1 = HEX_VALUES[b1]
-  local h2 = HEX_VALUES[b2]
-  local h3 = HEX_VALUES[b3]
-  local h4 = HEX_VALUES[b4]
-  if h1 == nil or h2 == nil or h3 == nil or h4 == nil then
-    return parts_len, nil, "Invalid unicode escape at " .. i
-  end
-  local code = h1 * HEX_WEIGHT_NIBBLE_4 + h2 * HEX_WEIGHT_NIBBLE_3 + h3 * HEX_WEIGHT_NIBBLE_2 + h4
-
-  if code < UNICODE_SURROGATE_HIGH_MIN or code > UNICODE_SURROGATE_LOW_MAX then
-    return append_codepoint_utf8(parts, parts_len, code), i + 4
-  end
-
-  if code > UNICODE_SURROGATE_HIGH_MAX then
-    return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
-  end
-  if str_byte(str, i + 5) ~= BYTE_BACKSLASH or str_byte(str, i + 6) ~= BYTE_U then
-    return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
-  end
-
-  b1, b2, b3, b4 = str_byte(str, i + 7, i + 10)
-  h1 = HEX_VALUES[b1]
-  h2 = HEX_VALUES[b2]
-  h3 = HEX_VALUES[b3]
-  h4 = HEX_VALUES[b4]
-  if h1 == nil or h2 == nil or h3 == nil or h4 == nil then
-    return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
-  end
-  local low_code = h1 * HEX_WEIGHT_NIBBLE_4 + h2 * HEX_WEIGHT_NIBBLE_3 + h3 * HEX_WEIGHT_NIBBLE_2 + h4
-  if low_code < UNICODE_SURROGATE_LOW_MIN or low_code > UNICODE_SURROGATE_LOW_MAX then
-    return parts_len, nil, "Unpaired surrogate or invalid unicode sequence at " .. i
-  end
-
-  local combined = UTF8_3BYTE_LIMIT
-    + ((code - UNICODE_SURROGATE_HIGH_MIN) * 1024)
-    + (low_code - UNICODE_SURROGATE_LOW_MIN)
-  return append_codepoint_utf8(parts, parts_len, combined), i + 10
+  return parts_len, next_pos
 end
 
 parse_string = function(str, pos, len)
