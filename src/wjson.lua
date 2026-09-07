@@ -280,28 +280,35 @@ for i = BYTE_A, BYTE_F do HEX_VALUES[i] = i - BYTE_A + 10 end
 
 local ESCAPED_KEY_CACHE = setmetatable({}, { __mode = "kv" })
 
-local function encode_string_contents(str)
-  if JIT then
+local encode_string_contents
+local encode_key_string
+
+if JIT then
+  encode_string_contents = function(str)
     return escape_string(str) or str
   end
-  if not str_find(str, ESCAPE_PATTERN) then
-    return str
-  end
-  return str_gsub(str, ESCAPE_PATTERN, ESCAPES)
-end
 
-local function encode_key_string(key)
-  local key_str = (type(key) == "string") and key or tostring(key)
-  if JIT then
+  encode_key_string = function(key)
+    local key_str = (type(key) == "string") and key or tostring(key)
     return encode_string_contents(key_str)
   end
-
-  local escaped_key = ESCAPED_KEY_CACHE[key_str]
-  if not escaped_key then
-    escaped_key = encode_string_contents(key_str)
-    ESCAPED_KEY_CACHE[key_str] = escaped_key
+else
+  encode_string_contents = function(str)
+    if not str_find(str, ESCAPE_PATTERN) then
+      return str
+    end
+    return str_gsub(str, ESCAPE_PATTERN, ESCAPES)
   end
-  return escaped_key
+
+  encode_key_string = function(key)
+    local key_str = (type(key) == "string") and key or tostring(key)
+    local escaped_key = ESCAPED_KEY_CACHE[key_str]
+    if not escaped_key then
+      escaped_key = encode_string_contents(key_str)
+      ESCAPED_KEY_CACHE[key_str] = escaped_key
+    end
+    return escaped_key
+  end
 end
 
 local function append_encoded_key(key, buf, buf_len)
@@ -449,21 +456,37 @@ local function drain_buffer(buffer, buf_len)
   return str
 end
 
-local function encode(val, buffer)
-  local buf
-  if buffer then
-    buf = buffer
-  elseif JIT then
-    buf = tab_new(DEFAULT_ENCODE_BUF_CAP, 0)
-  else
-    buf = {}
+local encode
+if JIT then
+  encode = function(val, buffer)
+    local buf
+    if buffer then
+      buf = buffer
+    else
+      buf = tab_new(DEFAULT_ENCODE_BUF_CAP, 0)
+    end
+    local buf_len, err = encode_value(val, buf, 0, {})
+    if err then
+      clear_buffer(buf, buf_len)
+      return nil, tostring(err)
+    end
+    return drain_buffer(buf, buf_len)
   end
-  local buf_len, err = encode_value(val, buf, 0, {})
-  if err then
-    clear_buffer(buf, buf_len)
-    return nil, tostring(err)
+else
+  encode = function(val, buffer)
+    local buf
+    if buffer then
+      buf = buffer
+    else
+      buf = {}
+    end
+    local buf_len, err = encode_value(val, buf, 0, {})
+    if err then
+      clear_buffer(buf, buf_len)
+      return nil, tostring(err)
+    end
+    return drain_buffer(buf, buf_len)
   end
-  return drain_buffer(buf, buf_len)
 end
 
 local decode_value
