@@ -741,11 +741,11 @@ if not JIT then
   end
 end
 
----@type fun(str: string, pos: integer, len: integer, b?: integer): number|string, integer|nil
+---@type fun(str: string, pos: integer, b?: integer): number|string, integer|nil
 local parse_number
 
 if JIT then
-  parse_number = function(str, pos, len, b)
+  parse_number = function(str, pos, b)
     local start_pos = pos
     b = b or str_byte(str, pos)
     local negative = false
@@ -858,7 +858,7 @@ if JIT then
     return num, pos
   end
 else
-  parse_number = function(str, pos, len, b)
+  parse_number = function(str, pos, b)
     local start_pos = pos
     b = b or str_byte(str, pos)
     local negative = false
@@ -1019,7 +1019,7 @@ else
           return parse_array(str, array_pos, depth, len, true)
         end
 
-        local val, new_pos = parse_number(str, fast_pos, len, fast_b)
+        local val, new_pos = parse_number(str, fast_pos, fast_b)
         if not new_pos then return val, nil end
         fast_n = fast_n + 1
         fast_arr[fast_n] = val
@@ -1165,7 +1165,7 @@ decode_value = function(str, pos, depth, len, b)
   elseif b == BYTE_QUOTE then
     return parse_string(str, pos, len)
   elseif (b >= BYTE_0 and b <= BYTE_9) or b == BYTE_MINUS then
-    return parse_number(str, pos, len, b)
+    return parse_number(str, pos, b)
   elseif b == BYTE_LBRACKET then
     return parse_array(str, pos, depth, len)
   elseif b == BYTE_LBRACE then
