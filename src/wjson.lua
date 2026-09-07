@@ -659,6 +659,9 @@ parse_string = function(str, pos, len)
       if not parts then
         return "", i + 1
       end
+      if parts_len == 1 then
+        return parts[1], i + 1
+      end
       local result = tbl_concat(parts, "", 1, parts_len)
       return result, i + 1
     end
