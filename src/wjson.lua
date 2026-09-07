@@ -65,6 +65,7 @@ local tostring                   = tostring
 local tonumber                   = tonumber
 local type                       = type
 local getmetatable               = getmetatable
+local setmetatable               = setmetatable
 local next                       = next
 local math_huge                  = math.huge
 
