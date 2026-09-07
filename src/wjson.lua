@@ -971,7 +971,12 @@ if JIT then
     local b
     pos, b = skip_whitespace(str, pos)
     while b ~= BYTE_RBRACKET do
-      local val, npos = decode_value(str, pos, depth + 1, len, b)
+      local val, npos
+      if b == BYTE_QUOTE then
+        val, npos = parse_string(str, pos, len)
+      else
+        val, npos = decode_value(str, pos, depth + 1, len, b)
+      end
       if not npos then return val, nil end
       pos = npos
       n = n + 1
