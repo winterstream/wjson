@@ -109,6 +109,7 @@ local UTF8_3BYTE_LIMIT           = 0x10000
 local MAX_DECODE_DEPTH           = 20
 
 local DEFAULT_PARTS_CAPACITY     = 32
+local DEFAULT_STRING_PARTS_CAP     = 8
 local DEFAULT_ENCODE_BUF_CAP     = 16384
 
 local UTF8_CONTINUATION_MARK     = 0x80
@@ -673,7 +674,7 @@ parse_string = function(str, pos, len)
     if b == BYTE_BACKSLASH then
       if not parts then
         if JIT then
-          parts = tab_new(DEFAULT_PARTS_CAPACITY, 0)
+          parts = tab_new(DEFAULT_STRING_PARTS_CAP, 0)
         else
           parts = {}
         end
