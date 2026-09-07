@@ -914,11 +914,15 @@ else
       return "Invalid number at position " .. start_pos, nil
     end
 
-    if str_find(num_str, "%.") and not str_find(num_str, "%.%d") then
+    local marker = b
+    if marker == BYTE_0 then marker = str_byte(str, pos) end
+    local has_dot = marker == BYTE_DOT
+    local has_exp = marker == BYTE_E or marker == BYTE_UPPER_E
+    if (has_dot or str_find(num_str, "%.")) and not str_find(num_str, "%.%d") then
       return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
     end
 
-    if str_find(num_str, "[eE]") and not str_find(num_str, "[eE][%+%-]?%d") then
+    if (has_exp or str_find(num_str, "[eE]")) and not str_find(num_str, "[eE][%+%-]?%d") then
       return "Invalid number: exponent must have digits at position " .. start_pos, nil
     end
 
