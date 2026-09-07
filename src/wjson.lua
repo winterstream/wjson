@@ -1059,7 +1059,11 @@ else
         if not new_pos then return val, nil end
         fast_n = fast_n + 1
         fast_arr[fast_n] = val
-        fast_pos, fast_b = skip_whitespace(str, new_pos)
+        fast_pos = new_pos
+        fast_b = str_byte(str, fast_pos)
+        if fast_b ~= BYTE_RBRACKET and fast_b ~= BYTE_COMMA then
+          fast_pos, fast_b = skip_whitespace(str, fast_pos)
+        end
 
         if fast_b == BYTE_RBRACKET then
           return setmetatable(fast_arr, array_mt), fast_pos + 1
@@ -1069,7 +1073,11 @@ else
         end
 
         local comma_pos = fast_pos
-        fast_pos, fast_b = skip_whitespace(str, fast_pos + 1)
+        fast_pos = fast_pos + 1
+        fast_b = str_byte(str, fast_pos)
+        if fast_b == BYTE_SPACE or fast_b == BYTE_LF or fast_b == BYTE_CR or fast_b == BYTE_TAB then
+          fast_pos, fast_b = skip_whitespace(str, fast_pos)
+        end
         if fast_b == BYTE_RBRACKET then
           return "Trailing comma in array at " .. comma_pos, nil
         end
