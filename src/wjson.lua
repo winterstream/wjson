@@ -962,12 +962,23 @@ else
     if marker == BYTE_0 then marker = str_byte(str, pos) end
     local has_dot = marker == BYTE_DOT
     local has_exp = marker == BYTE_E or marker == BYTE_UPPER_E
-    if (has_dot or str_find(num_str, "%.")) and not str_find(num_str, "%.%d") then
-      return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
+    local dot_pos = has_dot and (pos - start_pos + 1) or str_find(num_str, ".", 1, true)
+    if dot_pos then
+      local b_after = str_byte(num_str, dot_pos + 1)
+      if not (b_after and b_after >= BYTE_0 and b_after <= BYTE_9) then
+        return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
+      end
     end
 
-    if (has_exp or str_find(num_str, "[eE]")) and not str_find(num_str, "[eE][%+%-]?%d") then
-      return "Invalid number: exponent must have digits at position " .. start_pos, nil
+    local e_pos = has_exp and (pos - start_pos + 1) or str_find(num_str, "[eE]")
+    if e_pos then
+      local b_after = str_byte(num_str, e_pos + 1)
+      if b_after == BYTE_PLUS or b_after == BYTE_MINUS then
+        b_after = str_byte(num_str, e_pos + 2)
+      end
+      if not (b_after and b_after >= BYTE_0 and b_after <= BYTE_9) then
+        return "Invalid number: exponent must have digits at position " .. start_pos, nil
+      end
     end
 
     local num = tonumber(num_str)
