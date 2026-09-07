@@ -508,9 +508,6 @@ else
   end
 end
 
-local function continuation_byte(b)
-  return b and b >= UTF8_CONTINUATION_MARK and b < UTF8_2BYTE_MARK
-end
 
 local function validate_utf8_at(str, i, len, b)
   if b < BYTE_SPACE then
@@ -524,7 +521,7 @@ local function validate_utf8_at(str, i, len, b)
   end
 
   local b2 = str_byte(str, i + 1)
-  if not continuation_byte(b2) then
+  if not b2 or b2 < UTF8_CONTINUATION_MARK or b2 >= UTF8_2BYTE_MARK then
     return nil, "Invalid UTF-8 sequence at position " .. i
   end
 
@@ -533,7 +530,7 @@ local function validate_utf8_at(str, i, len, b)
   end
 
   local b3 = str_byte(str, i + 2)
-  if not continuation_byte(b3) then
+  if not b3 or b3 < UTF8_CONTINUATION_MARK or b3 >= UTF8_2BYTE_MARK then
     return nil, "Invalid UTF-8 sequence at position " .. i
   end
 
@@ -548,7 +545,7 @@ local function validate_utf8_at(str, i, len, b)
   end
 
   local b4 = str_byte(str, i + 3)
-  if not continuation_byte(b4) then
+  if not b4 or b4 < UTF8_CONTINUATION_MARK or b4 >= UTF8_2BYTE_MARK then
     return nil, "Invalid UTF-8 sequence at position " .. i
   end
   if b == UTF8_4BYTE_MARK and b2 < 0x90 then
