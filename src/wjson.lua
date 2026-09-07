@@ -1008,7 +1008,7 @@ else
     -- Numeric arrays are common in the control workloads. Keep this branch at
     -- array entry so string/object arrays pay one check, not one per element.
     if not skip_numeric_fast and (b == BYTE_MINUS or (b and b >= BYTE_0 and b <= BYTE_9)) then
-      local fast_arr = tab_new(8, 0)
+      local fast_arr = {}
       local fast_n = 0
       local fast_pos = pos
       local fast_b = b
@@ -1039,7 +1039,7 @@ else
       end
     end
 
-    local arr = tab_new(8, 0)
+    local arr = {}
     local n = 0
 
     while b ~= BYTE_RBRACKET do
@@ -1079,7 +1079,7 @@ else
   end
 
   parse_object = function(str, pos, depth, len)
-    local obj = tab_new(0, 8)
+    local obj = {}
     pos = pos + 1 -- skip {
 
     local b
