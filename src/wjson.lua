@@ -464,10 +464,15 @@ if JIT then
     end
     local buf_len, err = encode_value(val, buf, 0, {})
     if err then
-      clear_buffer(buf, buf_len)
+      if buffer then
+        clear_buffer(buf, buf_len)
+      end
       return nil, tostring(err)
     end
-    return drain_buffer(buf, buf_len)
+    if buffer then
+      return drain_buffer(buf, buf_len)
+    end
+    return tbl_concat(buf, "", 1, buf_len)
   end
 else
   encode = function(val, buffer)
@@ -479,10 +484,15 @@ else
     end
     local buf_len, err = encode_value(val, buf, 0, {})
     if err then
-      clear_buffer(buf, buf_len)
+      if buffer then
+        clear_buffer(buf, buf_len)
+      end
       return nil, tostring(err)
     end
-    return drain_buffer(buf, buf_len)
+    if buffer then
+      return drain_buffer(buf, buf_len)
+    end
+    return tbl_concat(buf, "", 1, buf_len)
   end
 end
 
