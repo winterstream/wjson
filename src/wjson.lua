@@ -356,23 +356,17 @@ local function encode_object(val, buf, buf_len, visited)
   buf_len = buf_len + 1
   buf[buf_len] = "{"
 
-  local first = true
   while k ~= nil do
-    if first then
-      first = false
-    else
-      buf_len = buf_len + 1
-      buf[buf_len] = ","
-    end
-
     buf_len = append_encoded_key(k, buf, buf_len)
     local new_buf_len, err = encode_value(v, buf, buf_len, visited)
     if err then return new_buf_len, err end
     buf_len = new_buf_len
+    buf_len = buf_len + 1
+    buf[buf_len] = ","
     k, v = next(val, k)
   end
 
-  buf_len = buf_len + 1
+  -- Replace the trailing comma with the closing brace.
   buf[buf_len] = "}"
   visited[val] = nil
   return buf_len
