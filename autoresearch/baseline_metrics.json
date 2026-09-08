@@ -1,7 +1,7 @@
 {
-  "luajit_decode_ms": 160.75,
-  "lua52_decode_ms": 583.44,
-  "lua53_decode_ms": 551.38,
-  "lua54_decode_ms": 450.85,
-  "lua55_decode_ms": 457.45
+  "luajit_decode_ms": 153.02,
+  "lua52_decode_ms": 586.48,
+  "lua53_decode_ms": 547.4,
+  "lua54_decode_ms": 450.5,
+  "lua55_decode_ms": 453.5
 }

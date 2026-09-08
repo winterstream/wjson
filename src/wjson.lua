@@ -325,18 +325,21 @@ local function encode_array(val, buf, buf_len, visited)
   buf[buf_len] = "["
 
   local len = #val
-  for i = 1, len do
-    if i > 1 then
+  if len > 0 then
+    for i = 1, len do
+      local new_buf_len, err = encode_value(val[i], buf, buf_len, visited)
+      if err then return new_buf_len, err end
+      buf_len = new_buf_len
       buf_len = buf_len + 1
       buf[buf_len] = ","
     end
-    local new_buf_len, err = encode_value(val[i], buf, buf_len, visited)
-    if err then return new_buf_len, err end
-    buf_len = new_buf_len
+    -- Replace the trailing comma with the closing bracket.
+    buf[buf_len] = "]"
+  else
+    buf_len = buf_len + 1
+    buf[buf_len] = "]"
   end
 
-  buf_len = buf_len + 1
-  buf[buf_len] = "]"
   visited[val] = nil
   return buf_len
 end
@@ -506,6 +509,7 @@ local SIMPLE_STRING_PATTERN      = '^([^"\\\1-\31%z\128-\255]*)"()'
 
 local utf8_len = utf8 and utf8.len
 local utf8_char = utf8 and utf8.char
+local PUC_OBJECT_CREATE          = _VERSION == "Lua 5.5" and table.create
 -- Lua 5.3's utf8.len accepts surrogate encodings (ED A0-BF). When we detect
 -- that leniency, spans also stop at ED (surrogate lead byte) so ED sequences
 -- always go through strict per-character validation instead.
@@ -1189,7 +1193,7 @@ else
   end
 
   parse_object = function(str, pos, depth, len)
-    local obj = {}
+    local obj = PUC_OBJECT_CREATE and PUC_OBJECT_CREATE(0, 8) or {}
     pos = pos + 1 -- skip {
 
     local b
