@@ -70,6 +70,7 @@ local next                       = next
 local math_huge                  = math.huge
 
 local JIT                        = _G['jit']
+local PUC                        = not JIT
 
 local BYTE_LBRACKET              = str_byte("[")
 local BYTE_RBRACKET              = str_byte("]")
@@ -109,7 +110,7 @@ local UTF8_3BYTE_LIMIT           = 0x10000
 local MAX_DECODE_DEPTH           = 20
 
 local DEFAULT_PARTS_CAPACITY     = 32
-local DEFAULT_STRING_PARTS_CAP     = 8
+local DEFAULT_STRING_PARTS_CAP   = 8
 local DEFAULT_ENCODE_BUF_CAP     = 16384
 
 local UTF8_CONTINUATION_MARK     = 0x80
@@ -133,16 +134,82 @@ local HEX_WEIGHT_NIBBLE_4        = 4096
 local HEX_WEIGHT_NIBBLE_3        = 256
 local HEX_WEIGHT_NIBBLE_2        = 16
 
---- Sentinel for null values, compatible with ngx.null if available
-local null                       = setmetatable({}, {
-  __tostring = function() return "null" end,
-  __tojson = function() return "null" end,
-})
+---@type table<string, string>
+local ESCAPES                    = {}
+for i = 0, 255 do
+  local c = str_char(i)
+  if i < BYTE_SPACE then
+    ESCAPES[c] = str_format("\\u%04x", i)
+  else
+    ESCAPES[c] = c
+  end
+end
 
-local SMALL_INTS                 = {}
+ESCAPES["\b"] = "\\b"
+ESCAPES["\f"] = "\\f"
+ESCAPES["\n"] = "\\n"
+ESCAPES["\r"] = "\\r"
+ESCAPES['"'] = '\\"'
+ESCAPES["\\"] = '\\\\'
+
+local ESCAPES_BYTE = {}
+for i = 0, 255 do
+  local c = str_char(i)
+  ESCAPES_BYTE[i] = ESCAPES[c]
+end
+
+local ESCAPE_PATTERN = '[%z\1-\31\\"]'
+local DECODE_ESCAPES = {
+  [BYTE_QUOTE] = '"',
+  [BYTE_BACKSLASH] = "\\",
+  [BYTE_SLASH] = "/",
+  [BYTE_B] = "\b",
+  [BYTE_F] = "\f",
+  [BYTE_N] = "\n",
+  [BYTE_R] = "\r",
+  [BYTE_T] = "\t",
+}
+
+local HEX_VALUES = {}
+for i = 0, 255 do HEX_VALUES[i] = nil end
+for i = BYTE_0, BYTE_9 do HEX_VALUES[i] = i - BYTE_0 end
+for i = BYTE_UPPER_A, BYTE_UPPER_F do HEX_VALUES[i] = i - BYTE_UPPER_A + 10 end
+for i = BYTE_A, BYTE_F do HEX_VALUES[i] = i - BYTE_A + 10 end
+
+local ESCAPED_KEY_CACHE     = setmetatable({}, { __mode = "kv" })
+
+local STRING_PATTERN        = '["\\\1-\31%z\128-\255]'
+-- PUC 5.3+: special bytes that are NOT valid multibyte UTF-8 starts. A scan
+-- for this class stops a multibyte run before any byte utf8.len would accept
+-- but strict UTF-8 (and this library) must reject (F5-FF out-of-range starts).
+local NON_HIGH_SPECIAL      = '["\\\1-\31%z\245-\255]'
+-- PUC-only: fused object head - skip whitespace, verify the key quote,
+-- and capture the key content start in one pattern call.
+local HEAD_KEY_POS          = '^[ \t\n\r]*"()'
+local HEAD_RBRACE_POS       = '^[ \t\n\r]*()}'
+local FUSED_KEY_COLON       = '^[ \t\n\r]*"([^"\\\1-\31%z\128-\255]*)"[ \t\n\r]*:[ \t\n\r]*()'
+local SIMPLE_STRING_PATTERN = '^([^"\\\1-\31%z\128-\255]*)"()'
+
+local utf8_len              = utf8 and utf8.len
+local utf8_char             = utf8 and utf8.char
+local PUC_OBJECT_CREATE     = _VERSION == "Lua 5.5" and table.create
+-- Lua 5.3's utf8.len accepts surrogate encodings (ED A0-BF). When we detect
+-- that leniency, spans also stop at ED (surrogate lead byte) so ED sequences
+-- always go through strict per-character validation instead.
+if utf8_len and utf8_len("\xED\xA0\x80") then
+  NON_HIGH_SPECIAL = '["\\\1-\31%z\237\245-\255]'
+end
+
+local SMALL_INTS = {}
 for i = 0, 999 do
   SMALL_INTS[i] = tostring(i)
 end
+
+--- Sentinel for null values, compatible with ngx.null if available
+local null            = setmetatable({}, {
+  __tostring = function() return "null" end,
+  __tojson = function() return "null" end,
+})
 
 local array_mt        = {}
 
@@ -178,9 +245,10 @@ else
   end
 end
 
+
 ---@type fun(str: string, pos: integer): integer, integer?
-local WHITESPACE_POS_PATTERN = '[ \n\r\t]*()'
 local skip_whitespace
+
 if JIT then
   skip_whitespace = function(str, pos)
     local b = str_byte(str, pos)
@@ -190,40 +258,25 @@ if JIT then
     end
     return pos, b
   end
-else
+end
+
+if PUC then
+  local WHITESPACE_POS_PATTERN = '[ \n\r\t]*()'
+
   skip_whitespace = function(str, pos)
     local new_pos = str_match(str, WHITESPACE_POS_PATTERN, pos) or pos
     return new_pos, str_byte(str, new_pos)
   end
 end
 
----@type table<string, string>
-local ESCAPES = {}
-for i = 0, 255 do
-  local c = str_char(i)
-  if i < BYTE_SPACE then
-    ESCAPES[c] = str_format("\\u%04x", i)
-  else
-    ESCAPES[c] = c
-  end
-end
 
-ESCAPES["\b"] = "\\b"
-ESCAPES["\f"] = "\\f"
-ESCAPES["\n"] = "\\n"
-ESCAPES["\r"] = "\\r"
-ESCAPES['"'] = '\\"'
-ESCAPES["\\"] = '\\\\'
+local encode_string_contents
+local encode_key_string
 
-local ESCAPES_BYTE = {}
-for i = 0, 255 do
-  local c = str_char(i)
-  ESCAPES_BYTE[i] = ESCAPES[c]
-end
-
-local escape_string
 if JIT then
-  escape_string = function(str)
+  ---@param str string
+  ---@return string?
+  local function escape_string(str)
     local len = #str
     for i = 1, len do
       local b = str_byte(str, i)
@@ -256,43 +309,18 @@ if JIT then
     end
     return nil
   end
-else
-  escape_string = function() error("escape_string called on PUC Lua") end
-end
 
-local ESCAPE_PATTERN = '[%z\1-\31\\"]'
-local DECODE_ESCAPES = {
-  [BYTE_QUOTE] = '"',
-  [BYTE_BACKSLASH] = "\\",
-  [BYTE_SLASH] = "/",
-  [BYTE_B] = "\b",
-  [BYTE_F] = "\f",
-  [BYTE_N] = "\n",
-  [BYTE_R] = "\r",
-  [BYTE_T] = "\t",
-}
-
-local HEX_VALUES = {}
-for i = 0, 255 do HEX_VALUES[i] = nil end
-for i = BYTE_0, BYTE_9 do HEX_VALUES[i] = i - BYTE_0 end
-for i = BYTE_UPPER_A, BYTE_UPPER_F do HEX_VALUES[i] = i - BYTE_UPPER_A + 10 end
-for i = BYTE_A, BYTE_F do HEX_VALUES[i] = i - BYTE_A + 10 end
-
-local ESCAPED_KEY_CACHE = setmetatable({}, { __mode = "kv" })
-
-local encode_string_contents
-local encode_key_string
-
-if JIT then
   encode_string_contents = function(str)
     return escape_string(str) or str
   end
 
   encode_key_string = function(key)
     local key_str = (type(key) == "string") and key or tostring(key)
-    return encode_string_contents(key_str)
+    return escape_string(key_str) or key_str
   end
-else
+end
+
+if PUC then
   encode_string_contents = function(str)
     if not str_find(str, ESCAPE_PATTERN) then
       return str
@@ -311,6 +339,7 @@ else
   end
 end
 
+
 local function append_encoded_key(key, buf, buf_len)
   buf[buf_len + 1] = '"'
   buf[buf_len + 2] = encode_key_string(key)
@@ -318,7 +347,9 @@ local function append_encoded_key(key, buf, buf_len)
   return buf_len + 3
 end
 
+
 local encode_value
+
 
 local function encode_array(val, buf, buf_len, visited)
   buf_len = buf_len + 1
@@ -343,6 +374,7 @@ local function encode_array(val, buf, buf_len, visited)
   visited[val] = nil
   return buf_len
 end
+
 
 local function encode_object(val, buf, buf_len, visited)
   local k, v = next(val)
@@ -371,6 +403,7 @@ local function encode_object(val, buf, buf_len, visited)
   visited[val] = nil
   return buf_len
 end
+
 
 encode_value = function(val, buf, buf_len, visited)
   if val == nil or val == null then
@@ -443,9 +476,11 @@ encode_value = function(val, buf, buf_len, visited)
   return encode_object(val, buf, buf_len, visited)
 end
 
+
 local function clear_buffer(buffer, buf_len)
   for i = 1, buf_len do buffer[i] = nil end
 end
+
 
 local function drain_buffer(buffer, buf_len)
   local str = tbl_concat(buffer, "", 1, buf_len)
@@ -453,7 +488,9 @@ local function drain_buffer(buffer, buf_len)
   return str
 end
 
+
 local encode
+
 if JIT then
   encode = function(val, buffer)
     local buf
@@ -474,7 +511,9 @@ if JIT then
     end
     return tbl_concat(buf, "", 1, buf_len)
   end
-else
+end
+
+if PUC then
   encode = function(val, buffer)
     local buf
     if buffer then
@@ -496,36 +535,14 @@ else
   end
 end
 
-local decode_value
-local parse_string
-
-local STRING_PATTERN = '["\\\1-\31%z\128-\255]'
--- PUC 5.3+: special bytes that are NOT valid multibyte UTF-8 starts. A scan
--- for this class stops a multibyte run before any byte utf8.len would accept
--- but strict UTF-8 (and this library) must reject (F5-FF out-of-range starts).
-local NON_HIGH_SPECIAL = '["\\\1-\31%z\245-\255]'
--- PUC-only: fused object head - skip whitespace, verify the key quote,
--- and capture the key content start in one pattern call.
-local HEAD_KEY_POS               = '^[ \t\n\r]*"()'
-local HEAD_RBRACE_POS            = '^[ \t\n\r]*()}'
-local FUSED_KEY_COLON            = '^[ \t\n\r]*"([^"\\\1-\31%z\128-\255]*)"[ \t\n\r]*:[ \t\n\r]*()'
-local SIMPLE_STRING_PATTERN      = '^([^"\\\1-\31%z\128-\255]*)"()'
-
-local utf8_len = utf8 and utf8.len
-local utf8_char = utf8 and utf8.char
-local PUC_OBJECT_CREATE          = _VERSION == "Lua 5.5" and table.create
--- Lua 5.3's utf8.len accepts surrogate encodings (ED A0-BF). When we detect
--- that leniency, spans also stop at ED (surrogate lead byte) so ED sequences
--- always go through strict per-character validation instead.
-if utf8_len and utf8_len("\xED\xA0\x80") then
-  NON_HIGH_SPECIAL = '["\\\1-\31%z\237\245-\255]'
-end
 
 local function clear_parts(parts, parts_len)
   for i = 1, parts_len do parts[i] = nil end
 end
 
+
 local find_string_boundary
+
 if JIT then
   find_string_boundary = function(str, pos, len)
     local i = pos
@@ -538,7 +555,9 @@ if JIT then
     end
     return nil, nil
   end
-else
+end
+
+if PUC then
   find_string_boundary = function(str, pos, len)
     local special_pos = str_find(str, STRING_PATTERN, pos)
     if not special_pos then
@@ -598,7 +617,6 @@ local function validate_utf8_at(str, i, b)
 end
 
 
-
 local function decode_unicode_escape(str, i, parts, parts_len)
   local b1, b2, b3, b4 = str_byte(str, i + 1, i + 4)
   local h1 = HEX_VALUES[b1]
@@ -635,8 +653,8 @@ local function decode_unicode_escape(str, i, parts, parts_len)
     end
 
     code = UTF8_3BYTE_LIMIT
-      + ((code - UNICODE_SURROGATE_HIGH_MIN) * 1024)
-      + (low_code - UNICODE_SURROGATE_LOW_MIN)
+        + ((code - UNICODE_SURROGATE_HIGH_MIN) * 1024)
+        + (low_code - UNICODE_SURROGATE_LOW_MIN)
     next_pos = i + 10
   end
 
@@ -667,7 +685,8 @@ local function decode_unicode_escape(str, i, parts, parts_len)
   return parts_len, next_pos
 end
 
-parse_string = function(str, pos, len)
+
+local function parse_string_slow(str, pos, len)
   local start = pos + 1
   local i, b = find_string_boundary(str, start, len)
   if not i then
@@ -774,8 +793,11 @@ parse_string = function(str, pos, len)
   return "Unterminated string at position " .. pos, nil
 end
 
+
+local parse_string
+
+
 if JIT then
-  local parse_string_slow = parse_string
   parse_string = function(str, pos, len)
     local start = pos + 1
     local i = start
@@ -793,11 +815,7 @@ if JIT then
   end
 end
 
-
--- PUC Lua can capture a clean ASCII string and its closing position in one C
--- pattern call. Keep LuaJIT on its byte-scanning implementation.
-if not JIT then
-  local parse_string_slow = parse_string
+if PUC then
   parse_string = function(str, pos, len)
     local value, next_pos = str_match(str, SIMPLE_STRING_PATTERN, pos + 1)
     if next_pos then
@@ -806,6 +824,7 @@ if not JIT then
     return parse_string_slow(str, pos, len)
   end
 end
+
 
 ---@type fun(str: string, pos: integer, b: integer): number|string, integer|nil
 local parse_number
@@ -922,7 +941,9 @@ if JIT then
     end
     return num, pos
   end
-else
+end
+
+if PUC then
   parse_number = function(str, pos, b)
     local start_pos = pos
     local negative = false
@@ -1000,6 +1021,8 @@ else
   end
 end
 
+
+local decode_value
 
 ---@type fun(str: string, pos: number, depth: number, len: number): any?, number?
 local parse_array
@@ -1107,7 +1130,9 @@ if JIT then
     end
     return obj, pos + 1
   end
-else
+end
+
+if PUC then
   parse_array = function(str, pos, depth, len, skip_numeric_fast)
     local array_pos = pos
     pos = pos + 1 -- skip [
@@ -1272,14 +1297,15 @@ else
   end
 end
 
+
 -- Internal decode helpers return either (value, next_pos) or (error_message, nil).
 decode_value = function(str, pos, depth, len, b)
   if depth > MAX_DECODE_DEPTH then return "JSON recursion depth limit exceeded", nil end
 
-  if not b then
-    return "Unexpected EOF", nil
-  elseif b == BYTE_QUOTE then
+  if b == BYTE_QUOTE then
     return parse_string(str, pos, len)
+  elseif not b then
+    return "Unexpected EOF", nil
   elseif (b >= BYTE_0 and b <= BYTE_9) or b == BYTE_MINUS then
     return parse_number(str, pos, b)
   elseif b == BYTE_LBRACKET then
@@ -1306,6 +1332,7 @@ decode_value = function(str, pos, depth, len, b)
   end
 end
 
+
 ---@param str string
 ---@param pos? integer
 ---@param len? integer
@@ -1329,6 +1356,7 @@ local function decode_next(str, len, pos)
   return val, end_pos, nil
 end
 
+
 ---@param str string
 ---@return any?, string?
 local function decode(str)
@@ -1344,9 +1372,11 @@ local function decode(str)
   return val
 end
 
+
 local function empty_array()
   return setmetatable(tab_new(0, 0), array_mt)
 end
+
 
 return {
   null = null,
