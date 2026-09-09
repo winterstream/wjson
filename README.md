@@ -3,70 +3,54 @@
 [![CI](https://github.com/winterstream/wjson/actions/workflows/ci.yml/badge.svg)](https://github.com/winterstream/wjson/actions/workflows/ci.yml)
 [![LuaRocks](https://img.shields.io/luarocks/v/winterstream/wjson.svg)](https://luarocks.org/modules/winterstream/wjson)
 
-A fast, correct JSON library for Lua with zero native dependencies.
+`wjson` is a strict, single-file JSON library-and the fastest pure-Lua option
+in our LuaJIT benchmarks. It has no native dependencies and supports LuaJIT and
+PUC Lua 5.2–5.5.
 
-## When and Why to Use wjson
+## Why use wjson
 
-Use `wjson` when:
+- It runs in environments where installing a C module is difficult, such as
+  embedded systems, game engines, and Neovim plugins.
+- The decoder validates JSON strings end to end. Of the libraries tested below,
+  only `wjson` rejected every malformed raw UTF-8 case. It also rejects malformed
+  Unicode escapes and unescaped control characters.
+- `decode_next` parses consecutive JSON values from one string without slicing
+  the input.
+- The encoder supports custom serialization through `__tojson` and accepts a
+  reusable buffer for repeated encodes.
 
-- **You need pure Lua with zero native dependencies:** Ideal for embedded
-  systems, game engines (LÖVE, Defold), Neovim plugins, cross-platform CLI
-  tools, or environments where compiling C extensions is difficult or
-  prohibited. It is distributed as a single drop-in file (`wjson.lua`).
-- **You want the best performance on LuaJIT:** On LuaJIT, `wjson` incorporates
-  measured optimizations in hot paths (pre-allocated table capacities via
-  `table.new`, trace-friendly scan loops), consistently outperforming other pure
-  Lua parsers (often 2×–5× faster than `lunajson` and `dkjson`).
-- **You require strict correctness and security:** Unlike parsers that pass
-  through raw bytes unchecked, `wjson` enforces RFC 8259 compliance, passes the
-  JSONTestSuite, and rejects invalid UTF-8 sequences (overlong encodings,
-  invalid surrogates, out-of-range codepoints).
-- **You need streaming parsing:** The `decode_next` API allows parsing
-  consecutive or concatenated JSON values from a single string buffer without
-  slicing.
+`wjson` is not the fastest choice on every Lua runtime. On PUC Lua 5.4 and 5.5,
+`lunajson` may be faster. If native modules are acceptable, `lua-cjson` will
+usually be faster for large inputs. Those libraries do not check raw UTF-8
+bytes, so validate input separately when that matters.
 
-When to consider an alternative:
+## Comparison
 
-- **If you need pure Lua on standard PUC Lua 5.4 or 5.5:** `lunajson` is
-  generally the faster pure-Lua choice on modern PUC Lua releases, where its
-  pattern-matching architecture performs particularly well under the
-  interpreter.
-- **If you have a working C compiler:** A native C extension like `lua-cjson`
-  will achieve higher raw character throughput for megabyte-scale bulk
-  processing.
+The repository includes benchmarks against other JSON libraries. On LuaJIT,
+those benchmarks have put `wjson` 2×–5× ahead of `lunajson` and `dkjson`. On PUC
+Lua 5.4 and 5.5, `lunajson` may be faster.
 
-## Competitor Comparison
+| Library                                            | Implementation | Dependencies | One file | Raw UTF-8     | Streaming | Compatibility     | Notes                                                   |
+| :------------------------------------------------- | :------------- | :----------- | :------: | :------------ | :-------- | :---------------- | :------------------------------------------------------ |
+| **`wjson`**                                        | Pure Lua       | None         |   Yes    | Validated     | Yes       | LuaJIT, 5.2–5.5   | UTF-8 validation; custom serialization                  |
+| [`lunajson`](https://github.com/grafi-tt/lunajson) | Pure Lua       | None         |    No    | Not validated | SAX mode  | LuaJIT, 5.1–5.5   | Often faster on PUC Lua 5.4–5.5                         |
+| [`rxi/json.lua`](https://github.com/rxi/json.lua)  | Pure Lua       | None         |   Yes    | Not validated | No        | LuaJIT, 5.1–5.5   | Small API                                               |
+| [`dkjson`](https://dkolf.de/dkjson-lua/)           | Pure Lua       | None         |   Yes    | Not validated | Yes       | LuaJIT, 5.1–5.5   | Configurable metatables                                 |
+| [`dkjson` + LPeg](https://dkolf.de/dkjson-lua/)    | Hybrid         | LPeg         |    No    | Not validated | Yes       | LuaJIT, 5.1–5.5\* | Faster on PUC Lua; slower on LuaJIT in these benchmarks |
+| [`lua-cjson`](https://github.com/mpx/lua-cjson)    | C extension    | C compiler   |    No    | Not validated | No        | LuaJIT, 5.1–5.5\* | Usually fastest for large inputs                        |
 
-| Library                                                | Implementation | Dependencies | Single File |  UTF-8 Validation   | Streaming (`decode_next`) | Compatibility     | Primary Strength                                                  |
-| :----------------------------------------------------- | :------------- | :----------- | :---------: | :-----------------: | :-----------------------: | :---------------- | :---------------------------------------------------------------- |
-| **`wjson`**                                            | Pure Lua       | None         |     Yes     |       Strict        |            Yes            | LuaJIT, 5.2–5.5   | Fastest pure-Lua parser on LuaJIT; strict validation, single file |
-| [**`lunajson`**](https://github.com/grafi-tt/lunajson) | Pure Lua       | None         |     No      |       Strict        |         SAX mode          | LuaJIT, 5.1–5.5   | Fastest pure-Lua parser on PUC Lua 5.4–5.5; SAX support           |
-| [**`rxi/json.lua`**](https://github.com/rxi/json.lua)  | Pure Lua       | None         |     Yes     | None (pass-through) |            No             | LuaJIT, 5.1–5.5   | Minimalist (~400 LOC) for simple scripts                          |
-| [**`dkjson`**](https://dkolf.de/dkjson-lua/) (Pure)    | Pure Lua       | None         |     Yes     |       Partial       |            Yes            | LuaJIT, 5.1–5.5   | Highly configurable with custom metatable options                 |
-| [**`dkjson`**](https://dkolf.de/dkjson-lua/) (+ LPeg)  | Hybrid         | LPeg (C)     |     No      |       Partial       |            Yes            | LuaJIT, 5.1–5.5\* | Accelerated on PUC Lua (slower on LuaJIT)                         |
-| [**`lua-cjson`**](https://github.com/mpx/lua-cjson)    | C Extension    | C compiler   |     No      |   Lax / Optional    |            No             | LuaJIT, 5.1–5.5\* | Highest raw throughput when native C compilation is acceptable    |
-
-\*_Note on Lua 5.5:_ Pure Lua libraries run directly on Lua 5.5 without changes.
-Native C extensions (`lua-cjson`, `lpeg`) require binaries compiled against Lua
-5.5 headers (available via modern Linux distributions like Alpine and Nixpkgs,
-though upstream source rocks on LuaRocks may not yet default to 5.5).
-
-## Features
-
-- **Pure Lua:** No external dependencies, making it easy to integrate.
-- **Correctness:** Includes UTF-8 validation and passes the JSONTestSuite.
-- **Simple API:** A straightforward `encode`/`decode` API with `decode_next` for
-  streaming-style parsing.
+`Not validated` means the library accepts malformed raw UTF-8 inside a JSON
+string. It says nothing about `\uXXXX` escape handling.
 
 ## Installation
 
-You can install `wjson` using LuaRocks:
+Install with LuaRocks:
 
 ```sh
 luarocks install wjson
 ```
 
-If LuaRocks is unavailable, download the single-file distribution from the
+Or download the single-file distribution from the
 [latest GitHub release](https://github.com/winterstream/wjson/releases/latest):
 
 ```sh
@@ -74,51 +58,35 @@ curl -fsSL -o wjson.lua \
   https://github.com/winterstream/wjson/releases/latest/download/wjson.lua
 ```
 
-Each GitHub release also includes the corresponding source rock and SHA-256
-checksums.
-
-## Benchmark Arena
-
-Run an automated head-to-head benchmark on your own machine without installing
-Lua or dependencies:
-
-```sh
-# Default: LuaJIT
-docker run --rm -it ghcr.io/winterstream/wjson
-
-# Run under PUC Lua 5.5
-docker run --rm -it ghcr.io/winterstream/wjson --lua55
-
-# Run under PUC Lua 5.4
-docker run --rm -it ghcr.io/winterstream/wjson --lua54
-
-# Quick run (fewer iterations)
-docker run --rm -it ghcr.io/winterstream/wjson --quick
-```
-
-<!-- prettier-ignore -->
-> [!NOTE]
-> `wjson` supports LuaJIT and PUC Lua 5.2–5.5. It does not support standard
-> PUC Lua 5.1 due to its reliance on standard bitwise facilities (`bit32`,
-> native bitwise operators, or LuaJIT `bit`) and Lua 5.2+ `load()` semantics.
-
-This compares `wjson` directly against pure Lua alternatives (`dkjson`,
-`lunajson`, `rxi/json.lua`) and native C modules (`lua-cjson`, `dkjson` with
-LPeg) across both synthetic payloads and multi-megabyte real-world datasets.
+Releases also contain the source rock and SHA-256 checksums.
 
 ## API
 
-### `wjson.encode(value)`
+### `wjson.encode(value[, buffer])`
 
-Encodes a Lua value into a JSON string.
+Encodes a Lua value as JSON. Lua `nil` and `wjson.null` become `null`. NaN and
+positive or negative infinity also become `null`. Strings, numbers, booleans,
+and tables are supported. Tables are encoded as arrays or objects; see
+[Arrays and objects](#arrays-and-objects).
 
-- Lua `nil` and `wjson.null` are encoded as `null`.
-- Non-finite Lua numbers (`0/0`, `math.huge`, `-math.huge`) are also encoded as
-  `null`.
-- Lua strings, numbers, and booleans are encoded as their JSON equivalents.
-- Lua tables are encoded as either JSON arrays or objects.
+Pass a table as `buffer` when encoding repeatedly. The buffer is cleared after
+`encode` returns.
 
-**Example:**
+Tables may define an `__tojson` metamethod for custom serialization. It must
+return a complete JSON value as a string, or `nil`/`false` and an error message.
+The returned JSON is inserted verbatim.
+
+```lua
+local wjson = require("wjson")
+
+local point = setmetatable({x = 3, y = 4}, {
+    __tojson = function(value)
+        return ('{"x":%d,"y":%d}'):format(value.x, value.y)
+    end,
+})
+
+print(wjson.encode(point)) -- {"x":3,"y":4}
+```
 
 ```lua
 local wjson = require("wjson")
@@ -128,89 +96,134 @@ local data = {
     loves_json = true,
     features = {"fast", "correct", "pure lua"},
     version = 0.1,
-    other = wjson.null
+    other = wjson.null,
 }
 
 local json_string = wjson.encode(data)
 print(json_string)
--- Output: {"name":"wjson","loves_json":true,"features":["fast","correct","pure lua"],"version":0.1,"other":null}
+-- For example: {"name":"wjson","loves_json":true,"features":["fast","correct","pure lua"],"version":0.1,"other":null}
 ```
 
 ### `wjson.decode(json_string)`
 
-Decodes a JSON string into a Lua value.
-
-- `null` is decoded into `wjson.null`.
-- JSON strings, numbers, booleans, arrays, and objects are decoded into their
-  Lua equivalents.
-
-**Example:**
+Decodes one JSON value. Surrounding whitespace is allowed; other trailing
+characters cause an error. JSON `null` becomes `wjson.null`.
 
 ```lua
 local wjson = require("wjson")
 
-local json_string = '{"name":"wjson","features":["fast","correct"]}'
+local data = wjson.decode('{"name":"wjson","features":["fast","correct"]}')
 
-local data = wjson.decode(json_string)
+print(data.name) -- wjson
+print(data.features[1]) -- fast
+```
 
-print(data.name) -- Output: wjson
-print(data.features[1]) -- Output: fast
+### `wjson.decode_next(json_string[, len[, pos]])`
+
+Decodes the next value starting at `pos` and returns the value and the position
+immediately after it. `len` defaults to the string length and `pos` defaults
+to 1. Use the returned position to continue through a buffer containing several
+values.
+
+```lua
+local wjson = require("wjson")
+local input = '"one" "two"'
+
+local value, pos = wjson.decode_next(input)
+print(value) -- one
+
+value, pos = wjson.decode_next(input, #input, pos)
+print(value) -- two
 ```
 
 ### `wjson.null`
 
-A sentinel value used to represent `null` in JSON. This is useful to
-differentiate between a `null` value and a key that is not present in a table
-(`nil`).
+A sentinel for JSON `null`. Use it when a table must distinguish `null` from a
+missing key.
 
-### Arrays vs. Objects
+### Arrays and objects
 
-`wjson` automatically detects whether a Lua table should be encoded as a JSON
-array or a JSON object.
-
-- **Array:** A table is considered an array if it is a sequence (keys are
-  integers from 1 to `n`). You can also force a table to be treated as an array
-  by setting its metatable to `wjson.array_mt`. `wjson.empty_array()` returns a
-  new empty array, and `wjson.array_mt` is exported for callers that need to tag
-  existing tables.
-- **Object:** Any other table is encoded as a JSON object.
-
-**Example:**
+A table is encoded as an array when its keys are the integer sequence `1..n`.
+Other tables are encoded as objects. An empty table is an object unless you mark
+it as an array.
 
 ```lua
 local wjson = require("wjson")
 
--- Encoded as an array
 print(wjson.encode({10, 20, 30}))
--- Output: [10,20,30]
+-- [10,20,30]
 
--- Encoded as an object
 print(wjson.encode({x = 1, y = 2}))
--- Output: {"y":2,"x":1}
+-- The order of object keys is not defined.
 
--- Force empty table to be an array
-local empty_array = setmetatable({}, wjson.array_mt)
+local empty_array = wjson.empty_array()
 print(wjson.encode(empty_array))
--- Output: []
+-- []
+
+-- You can also mark an existing table.
+local values = setmetatable({}, wjson.array_mt)
 ```
 
-## Verification
+## Compatibility and validation
 
-Every push and pull request runs the full test suite on LuaJIT and Lua 5.2, 5.3,
-5.4, and 5.5. The suite includes the JSONTestSuite and strict UTF-8 validation.
-The rockspec is linted in CI as well.
+`wjson` supports LuaJIT and PUC Lua 5.2, 5.3, 5.4, and 5.5. It does not support
+PUC Lua 5.1 because it uses Lua 5.2+ `load` semantics and standard bitwise
+facilities.
+
+The test suite includes the JSONTestSuite and checks for malformed UTF-8,
+invalid Unicode escapes, and unescaped control characters. CI runs the suite on
+all five supported runtimes and lints the rockspec.
+
+### UTF-8 validation
+
+We ran 119 cases from `spec/unicode_spec.lua`, `spec/utf8_validation_spec.lua`,
+and the Unicode sections of `spec/adversarial_spec.lua` against the libraries
+above. The results were the same on LuaJIT, Lua 5.4, and Lua 5.5. A raised error
+or a `nil`/error return counts as rejection.
+
+| Library         | Malformed raw UTF-8 | Malformed `\uXXXX` escapes | Unescaped controls |
+| :-------------- | :------------------ | :------------------------- | :----------------- |
+| **`wjson`**     | 26/26 rejected      | 17/17 rejected             | 32/32 rejected     |
+| `lunajson`      | 0/26 rejected       | 17/17 rejected             | 32/32 rejected     |
+| `rxi/json.lua`  | 0/26 rejected       | 12/17 rejected             | 32/32 rejected     |
+| `dkjson`        | 0/26 rejected       | 0/17 rejected              | 0/32 rejected      |
+| `dkjson` + LPeg | 0/26 rejected       | 12/17 rejected             | 30/32 rejected     |
+| `lua-cjson`     | 0/26 rejected       | 17/17 rejected             | 31/32 rejected     |
+
+The run used dkjson 2.11, rxi/json.lua 0.1.2, lunajson 1.2.3-1, lua-cjson 2.1.0,
+and LPeg 1.1.0.
+
+## Benchmarks
+
+Run the benchmark arena without installing Lua or its dependencies:
+
+```sh
+# Default: LuaJIT
+docker run --rm -it ghcr.io/winterstream/wjson
+
+# PUC Lua 5.5
+docker run --rm -it ghcr.io/winterstream/wjson --lua55
+
+# PUC Lua 5.4
+docker run --rm -it ghcr.io/winterstream/wjson --lua54
+
+# Fewer iterations
+docker run --rm -it ghcr.io/winterstream/wjson --quick
+```
+
+The arena compares `wjson` with pure-Lua parsers and, when available, native
+modules across synthetic payloads and real-world datasets.
 
 ## Development
 
-To run the tests, you will need `busted` or `nix`. Then, run the test script:
+Run the tests with `busted` or `nix` installed:
 
 ```sh
 ./run_tests.sh
 ```
 
-## Notes
+For changes to performance-sensitive code, also run `bench/bench.lua`.
 
-- Decoder input is validated as UTF-8.
-- Non-finite Lua numbers encode as `null` by policy.
-- Performance-sensitive changes should be verified with `bench/bench.lua` and
-  `./run_tests.sh`.
+## License
+
+BSD 3-Clause. See [LICENSE](LICENSE).

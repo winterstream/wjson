@@ -1,6 +1,6 @@
-.PHONY: test lint pack release-assets install clean arena arena-build help
+.PHONY: test lint pack release-assets install clean arena arena-build rockspec rockspec-check help
 
-ROCKSPEC=wjson-0.9-3.rockspec
+ROCKSPEC=wjson-0.9-4.rockspec
 VERSION=$(shell sed -n 's/^version = "\(.*\)"/\1/p' $(ROCKSPEC))
 DIST_DIR=dist
 DOCKER_CMD=$(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null || echo docker)
@@ -17,7 +17,9 @@ endef
 help:
 	@echo "Available targets:"
 	@echo "  test    - Run busted tests"
-	@echo "  lint    - Check rockspec for errors"
+	@echo "  lint    - Check rockspec for errors and sync with README.md"
+	@echo "  rockspec - Update rockspec detailed description from README.md"
+	@echo "  rockspec-check - Check if rockspec detailed description is in sync"
 	@echo "  pack    - Create a source rock (requires valid URL in rockspec)"
 	@echo "  release-assets - Build the single-file and source-rock release assets"
 	@echo "  arena   - Build and run the benchmark arena container"
@@ -27,10 +29,16 @@ help:
 test:
 	./run_tests.sh
 
-lint:
+rockspec:
+	@$(call run_cmd,lua tools/render_rockspec.lua $(ROCKSPEC))
+
+rockspec-check:
+	@$(call run_cmd,lua tools/render_rockspec.lua --check $(ROCKSPEC))
+
+lint: rockspec-check
 	@$(call run_cmd,luarocks lint $(ROCKSPEC))
 
-pack:
+pack: rockspec
 	@$(call run_cmd,luarocks pack $(ROCKSPEC))
 
 release-assets: pack
