@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-RUN_DKJSON=false
-for arg in "$@"; do
-    if [ "$arg" == "--run_dkjson" ]; then
-        RUN_DKJSON=true
-        break
-    fi
-done
 
 run_in_nix() {
     local shell_name=$1
@@ -15,14 +8,9 @@ run_in_nix() {
     echo "========================================================================="
     echo "Running with Nix environment: $shell_name"
     
-    echo ">>> Running wjson benchmarks..."
+    echo ">>> Running JSON library benchmarks..."
     nix develop ".#$shell_name" -c env LUA_CPATH="" LUA_PATH="src/?.lua;bench/?.lua;;" $cmd bench/bench.lua
     
-    if [ "$RUN_DKJSON" = true ]; then
-        echo ""
-        echo ">>> Running dkjson benchmarks..."
-        nix develop ".#$shell_name" -c env LUA_CPATH="" LUA_PATH="src/?.lua;bench/?.lua;;" USE_DKJSON=1 $cmd bench/bench.lua
-    fi
 }
 
 if command -v nix > /dev/null 2>&1; then
