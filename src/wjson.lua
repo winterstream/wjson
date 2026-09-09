@@ -489,50 +489,24 @@ local function drain_buffer(buffer, buf_len)
 end
 
 
-local encode
-
-if JIT then
-  encode = function(val, buffer)
-    local buf
-    if buffer then
-      buf = buffer
-    else
-      buf = tab_new(DEFAULT_ENCODE_BUF_CAP, 0)
-    end
-    local buf_len, err = encode_value(val, buf, 0, {})
-    if err then
-      if buffer then
-        clear_buffer(buf, buf_len)
-      end
-      return nil, tostring(err)
-    end
-    if buffer then
-      return drain_buffer(buf, buf_len)
-    end
-    return tbl_concat(buf, "", 1, buf_len)
+local function encode(val, buffer)
+  local buf
+  if buffer then
+    buf = buffer
+  else
+    buf = tab_new(DEFAULT_ENCODE_BUF_CAP, 0)
   end
-end
-
-if PUC then
-  encode = function(val, buffer)
-    local buf
+  local buf_len, err = encode_value(val, buf, 0, {})
+  if err then
     if buffer then
-      buf = buffer
-    else
-      buf = {}
+      clear_buffer(buf, buf_len)
     end
-    local buf_len, err = encode_value(val, buf, 0, {})
-    if err then
-      if buffer then
-        clear_buffer(buf, buf_len)
-      end
-      return nil, tostring(err)
-    end
-    if buffer then
-      return drain_buffer(buf, buf_len)
-    end
-    return tbl_concat(buf, "", 1, buf_len)
+    return nil, tostring(err)
   end
+  if buffer then
+    return drain_buffer(buf, buf_len)
+  end
+  return tbl_concat(buf, "", 1, buf_len)
 end
 
 
