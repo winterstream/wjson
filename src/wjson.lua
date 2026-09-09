@@ -826,62 +826,14 @@ if PUC then
 end
 
 
----@type fun(str: string, pos: integer, b: integer): number|string, integer|nil
-local parse_number
+local parse_number_slow
 
 if JIT then
-  parse_number = function(str, pos, b)
-    local start_pos = pos
-    local negative = false
-
-    -- Handle optional minus sign
-    if b == BYTE_MINUS then
-      negative = true
-      pos = pos + 1
-      b = str_byte(str, pos)
-    end
-
-    if not (b and b >= BYTE_0 and b <= BYTE_9) then
-      return "Invalid number at position " .. start_pos, nil
-    end
-
-    -- Fast path: compute small integers directly from byte values
-    -- Avoids str_sub + tonumber allocation for the common case
-    if b == BYTE_0 then
-      -- Check for leading zero followed by digit (invalid: 01, 023)
-      local next_b = str_byte(str, pos + 1)
-      if next_b and next_b >= BYTE_0 and next_b <= BYTE_9 then
-        return "Invalid number: leading zero at position " .. start_pos, nil
-      end
-      pos = pos + 1
-      -- Check if followed by '.', 'e', 'E' (slow path)
-      if next_b == BYTE_DOT or next_b == BYTE_E or next_b == BYTE_UPPER_E then
-        -- Fall through to slow path
-      else
-        return negative and -0 or 0, pos
-      end
-    else
-      -- Non-zero first digit: try to accumulate integer directly
-      local num = b - BYTE_0
-      pos = pos + 1
-      while true do
-        b = str_byte(str, pos)
-        if b and b >= BYTE_0 and b <= BYTE_9 then
-          num = num * 10 + (b - BYTE_0)
-          pos = pos + 1
-        elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
-          break
-        else
-          if negative then num = -num end
-          return num, pos
-        end
-      end
-    end
-
-    -- Slow path: handle decimals and exponents via tonumber(str_sub(...))
-    -- Re-scan from start_pos since we need the full string for tonumber
-    pos = start_pos + (negative and 1 or 0)
-    b = str_byte(str, pos)
+  -- Slow path: handle decimals and exponents via tonumber(str_sub(...))
+  -- Re-scan from start_pos since we need the full string for tonumber
+  parse_number_slow = function(str, start_pos, negative)
+    local pos = start_pos + (negative and 1 or 0)
+    local b = str_byte(str, pos)
     -- Skip digits before decimal/exponent
     while true do
       b = str_byte(str, pos)
@@ -943,82 +895,85 @@ if JIT then
   end
 end
 
-if PUC then
-  parse_number = function(str, pos, b)
-    local start_pos = pos
-    local negative = false
 
-    if b == BYTE_MINUS then
-      negative = true
-      pos = pos + 1
-      b = str_byte(str, pos)
-    end
+local function parse_number(str, pos, b)
+  local start_pos = pos
+  local negative = false
 
-    if not (b and b >= BYTE_0 and b <= BYTE_9) then
-      return "Invalid number at position " .. start_pos, nil
-    end
-
-    if b == BYTE_0 then
-      local next_b = str_byte(str, pos + 1)
-      if next_b and next_b >= BYTE_0 and next_b <= BYTE_9 then
-        return "Invalid number: leading zero at position " .. start_pos, nil
-      end
-      pos = pos + 1
-      if next_b ~= BYTE_DOT and next_b ~= BYTE_E and next_b ~= BYTE_UPPER_E then
-        return negative and -0 or 0, pos
-      end
-    else
-      local num = b - BYTE_0
-      pos = pos + 1
-      while true do
-        b = str_byte(str, pos)
-        if b and b >= BYTE_0 and b <= BYTE_9 then
-          num = num * 10 + (b - BYTE_0)
-          pos = pos + 1
-        elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
-          break
-        else
-          if negative then num = -num end
-          return num, pos
-        end
-      end
-    end
-
-    -- Fast C pattern match for floats and exponents on PUC Lua
-    local num_str, next_pos = str_match(str, "^(%-?%d+%.?%d*[eE]?[%+%-]?%d*)()", start_pos)
-    if not num_str then
-      return "Invalid number at position " .. start_pos, nil
-    end
-
-    local marker = b
-    if marker == BYTE_0 then marker = str_byte(str, pos) end
-    local has_dot = marker == BYTE_DOT
-    local has_exp = marker == BYTE_E or marker == BYTE_UPPER_E
-    local dot_pos = has_dot and (pos - start_pos + 1) or str_find(num_str, ".", 1, true)
-    if dot_pos then
-      local b_after = str_byte(num_str, dot_pos + 1)
-      if not (b_after and b_after >= BYTE_0 and b_after <= BYTE_9) then
-        return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
-      end
-    end
-
-    local e_pos = has_exp and (pos - start_pos + 1) or str_find(num_str, "[eE]")
-    if e_pos then
-      local b_after = str_byte(num_str, e_pos + 1)
-      if b_after == BYTE_PLUS or b_after == BYTE_MINUS then
-        b_after = str_byte(num_str, e_pos + 2)
-      end
-      if not (b_after and b_after >= BYTE_0 and b_after <= BYTE_9) then
-        return "Invalid number: exponent must have digits at position " .. start_pos, nil
-      end
-    end
-
-    local num = tonumber(num_str)
-    if not num then
-      return "Invalid number value at " .. start_pos, nil
-    end
-    return num, next_pos
+  if b == BYTE_MINUS then
+    negative = true
+    pos = pos + 1
+    b = str_byte(str, pos)
   end
+
+  if not (b and b >= BYTE_0 and b <= BYTE_9) then
+    return "Invalid number at position " .. start_pos, nil
+  end
+
+  if b == BYTE_0 then
+    local next_b = str_byte(str, pos + 1)
+    if next_b and next_b >= BYTE_0 and next_b <= BYTE_9 then
+      return "Invalid number: leading zero at position " .. start_pos, nil
+    end
+    pos = pos + 1
+    if next_b ~= BYTE_DOT and next_b ~= BYTE_E and next_b ~= BYTE_UPPER_E then
+      return negative and -0 or 0, pos
+    end
+  else
+    local num = b - BYTE_0
+    pos = pos + 1
+    while true do
+      b = str_byte(str, pos)
+      if b and b >= BYTE_0 and b <= BYTE_9 then
+        num = num * 10 + (b - BYTE_0)
+        pos = pos + 1
+      elseif b == BYTE_DOT or b == BYTE_E or b == BYTE_UPPER_E then
+        break
+      else
+        if negative then num = -num end
+        return num, pos
+      end
+    end
+  end
+
+  if JIT then -- function calls don't hurt luajit as much as puc lua.
+    return parse_number_slow(str, start_pos, negative)
+  end
+
+  -- Fast C pattern match for floats and exponents on PUC Lua
+  local num_str, next_pos = str_match(str, "^(%-?%d+%.?%d*[eE]?[%+%-]?%d*)()", start_pos)
+  if not num_str then
+    return "Invalid number at position " .. start_pos, nil
+  end
+
+  local marker = b
+  if marker == BYTE_0 then marker = str_byte(str, pos) end
+  local has_dot = marker == BYTE_DOT
+  local has_exp = marker == BYTE_E or marker == BYTE_UPPER_E
+  local dot_pos = has_dot and (pos - start_pos + 1) or str_find(num_str, ".", 1, true)
+  if dot_pos then
+    local b_after = str_byte(num_str, dot_pos + 1)
+    if not (b_after and b_after >= BYTE_0 and b_after <= BYTE_9) then
+      return "Invalid number: dot must be followed by digits at position " .. start_pos, nil
+    end
+  end
+
+  local e_pos = has_exp and (pos - start_pos + 1) or str_find(num_str, "[eE]")
+  if e_pos then
+    local b_after = str_byte(num_str, e_pos + 1)
+    if b_after == BYTE_PLUS or b_after == BYTE_MINUS then
+      b_after = str_byte(num_str, e_pos + 2)
+    end
+    if not (b_after and b_after >= BYTE_0 and b_after <= BYTE_9) then
+      return "Invalid number: exponent must have digits at position " .. start_pos, nil
+    end
+  end
+
+  local num = tonumber(num_str)
+  if not num then
+    return "Invalid number value at " .. start_pos, nil
+  end
+  return num, next_pos
 end
 
 
