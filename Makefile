@@ -8,7 +8,7 @@ DOCKER_CMD=$(shell command -v podman 2>/dev/null || command -v docker 2>/dev/nul
 # Use nix-shell if nix is available, otherwise run directly
 define run_cmd
 	if command -v nix >/dev/null 2>&1; then \
-		nix shell nixpkgs#luarocks --command $(1); \
+		nix shell nixpkgs#luarocks nixpkgs#lua --command $(1); \
 	else \
 		$(1); \
 	fi
